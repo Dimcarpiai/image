@@ -1,0 +1,12 @@
+services:
+  image-optimizer:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - optimizer-data:/data
+    restart: unless-stopped
+
+volumes:
+  optimizer-data:

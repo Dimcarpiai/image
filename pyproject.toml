@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "saleor-image-optimizer"
+version = "0.1.0"
+description = "Saleor dashboard app that optimizes product images (resize, WebP/AVIF, compression)."
+authors = ["Your Name <you@example.com>"]
+packages = [{ include = "image_optimizer" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+# mirumee/saleor-app-framework-python (unmaintained since 2023, pydantic v1 based)
+saleor-app = { git = "https://github.com/mirumee/saleor-app-framework-python.git", branch = "main" }
+fastapi = "<0.100"
+pydantic = "<2"
+uvicorn = { version = "<0.30", extras = ["standard"] }
+aiohttp = "^3.9"
+aiofiles = "*"
+jinja2 = "^3"
+pillow = ">=11.3"          # native AVIF support
+python-multipart = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8"
+pytest-asyncio = "^0.23"
+httpx = "<0.28"  # starlette<0.28 TestClient compat
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

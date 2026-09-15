@@ -1,0 +1,10 @@
+saleor-app @ git+https://github.com/mirumee/saleor-app-framework-python.git@main
+fastapi<0.100
+pydantic<2
+uvicorn[standard]<0.30
+aiohttp>=3.9
+aiofiles
+jinja2>=3
+pillow>=11.3
+python-multipart
+gunicorn

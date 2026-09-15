@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image Optimizer</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main id="app" class="app" hidden>
+    <header class="topbar">
+      <div>
+        <h1>Image Optimizer</h1>
+        <p class="topbar-stats" id="stats">Loading…</p>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn" id="optimize-all">Optimize all loaded products</button>
+      </div>
+    </header>
+
+    <section class="panel" aria-labelledby="settings-title">
+      <div class="panel-head">
+        <h2 id="settings-title">How images are optimized</h2>
+        <button class="btn btn-primary" id="save-settings">Save settings</button>
+      </div>
+      <form id="settings-form" class="settings-grid" onsubmit="return false">
+        <label>Output format
+          <select name="format">
+            <option value="webp">WebP</option>
+            <option value="avif" id="avif-option">AVIF</option>
+            <option value="jpeg">JPEG</option>
+            <option value="png">PNG</option>
+            <option value="keep">Keep original format</option>
+          </select>
+        </label>
+        <label>Quality <span class="hint">1–100</span>
+          <input type="number" name="quality" min="1" max="100">
+        </label>
+        <label>Max width <span class="hint">px</span>
+          <input type="number" name="max_width" min="64" max="10000" step="10">
+        </label>
+        <label>Max height <span class="hint">px</span>
+          <input type="number" name="max_height" min="64" max="10000" step="10">
+        </label>
+        <div class="settings-checks">
+          <label class="check"><input type="checkbox" name="replace_original"> Replace the original image (otherwise the optimized copy is added next to it)</label>
+          <label class="check"><input type="checkbox" name="strip_metadata"> Remove EXIF and color-profile metadata</label>
+          <label class="check"><input type="checkbox" name="skip_if_not_smaller"> Keep the original when the optimized file would not be smaller</label>
+          <label class="check"><input type="checkbox" name="auto_optimize_new_uploads"> Optimize new uploads automatically</label>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel" aria-labelledby="products-title">
+      <div class="panel-head">
+        <h2 id="products-title">Products</h2>
+        <input type="search" id="search" placeholder="Search products" aria-label="Search products">
+      </div>
+      <div class="table-wrap">
+        <table class="products">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Images</th>
+              <th>Total size</th>
+              <th>Optimized</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="product-rows"></tbody>
+        </table>
+      </div>
+      <div class="table-foot">
+        <span id="page-info"></span>
+        <button class="btn" id="load-more" hidden>Load more</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="log-title">
+      <div class="panel-head">
+        <h2 id="log-title">Activity</h2>
+        <button class="btn btn-quiet" id="clear-log">Clear</button>
+      </div>
+      <ol id="log" class="log"></ol>
+    </section>
+  </main>
+
+  <div id="waiting" class="waiting">
+    <p>Connecting to the Saleor dashboard…</p>
+    <p class="hint">This page only works when opened from the Saleor dashboard, under Catalog → Image Optimizer.</p>
+  </div>
+
+  <dialog id="preview" class="preview">
+    <form method="dialog" class="preview-head">
+      <h2 id="preview-title">Preview</h2>
+      <button class="btn btn-quiet">Close</button>
+    </form>
+    <div class="preview-body">
+      <figure><img id="preview-before" alt="Original image"><figcaption id="preview-before-cap">Original</figcaption></figure>
+      <figure><img id="preview-after" alt="Optimized image"><figcaption id="preview-after-cap">Optimized</figcaption></figure>
+    </div>
+  </dialog>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
