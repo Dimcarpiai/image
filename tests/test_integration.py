@@ -48,8 +48,10 @@ class FakeSaleor:
             q, v = body["query"], body.get("variables") or {}
             self.calls.append((q.split("(")[0].split()[-1], v))
             if "webhookCreate" in q:
+                if getattr(self, "reject_webhook", False):
+                    return {"data": {"webhookCreate": {"errors": [{"field": "query", "message": "bad", "code": "INVALID"}], "webhook": None}}}
                 self.webhooks.append(v["input"])
-                return {"data": {"webhookCreate": {"webhookErrors": [], "webhook": {"id": "WH1"}}}}
+                return {"data": {"webhookCreate": {"errors": [], "webhook": {"id": "WH1"}}}}
             if "tokenVerify" in q:
                 return {"data": {"tokenVerify": {"isValid": v["token"] == "staff-jwt", "user": {"id": "U"}}}}
             if "query ProductsWithMedia" in q:
@@ -157,8 +159,19 @@ def test_install_registers_webhook(saleor):
     assert r.status_code == 200, r.text
     wh = saleor.webhooks[-1]
     assert wh["targetUrl"] == "http://testserver/webhook"
-    assert wh["events"] == ["PRODUCT_MEDIA_CREATED"]
+    assert wh["asyncEvents"] == ["PRODUCT_MEDIA_CREATED"]
     assert "ProductMediaCreated" in wh["query"]
     inst = db.get_installation(f"127.0.0.1:{saleor.port}")
     assert inst.webhook_id == "WH1" and inst.webhook_secret == wh["secretKey"]
     assert inst.saleor_api_url == saleor.base + "/graphql/"
+
+
+def test_install_survives_webhook_rejection(saleor, monkeypatch):
+    c = TestClient(app)
+    orig = saleor.app.routes
+    saleor.reject_webhook = True
+    r = c.post("/configuration/install", json={"auth_token": "app-token"},
+               headers={"x-saleor-domain": f"127.0.0.1:{saleor.port}", "saleor-api-url": saleor.base + "/graphql/"})
+    saleor.reject_webhook = False
+    assert r.status_code == 200
+    assert db.get_installation(f"127.0.0.1:{saleor.port}").webhook_id is None

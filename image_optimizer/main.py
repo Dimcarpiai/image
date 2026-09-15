@@ -1,24 +1,21 @@
 import contextvars
 import logging
+import secrets
 from pathlib import Path
 from typing import Any, Optional
 
-from collections import defaultdict
-
-from fastapi import BackgroundTasks, Body, Depends, HTTPException, Request
+from fastapi import BackgroundTasks, Body, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from saleor_app.app import SaleorApp
 from saleor_app.deps import saleor_domain_header, verify_saleor_domain
-from saleor_app.errors import InstallAppError
-from saleor_app.install import install_app
-from saleor_app.saleor.exceptions import GraphQLError
 from saleor_app.schemas.core import DomainName, InstallData, WebhookData
 from saleor_app.schemas.manifest import Extension, Manifest, MountType, TargetType
 from saleor_app.schemas.utils import LazyPath, LazyUrl
 
 from .api import router as api_router
 from .db import db
+from .saleor_api import SaleorAPI, SaleorAPIError
 from .service import optimize_product
 from .settings import settings
 
@@ -187,36 +184,56 @@ async def product_media_created(
 # --------------------------------------------------------------------------
 # Install endpoint
 # --------------------------------------------------------------------------
+WEBHOOK_CREATE = """
+mutation WebhookCreate($input: WebhookCreateInput!) {
+  webhookCreate(input: $input) {
+    errors { field message code }
+    webhook { id }
+  }
+}
+"""
+
+
+async def register_webhook(saleor_api_url: str, auth_token: str, target_url: str) -> Optional[WebhookData]:
+    """Create our PRODUCT_MEDIA_CREATED webhook. Returns None (and logs why)
+    if Saleor rejects it - the dashboard features work without it, only
+    auto-optimize needs it."""
+    secret = secrets.token_urlsafe(32)
+    events = app.webhook_router.http_routes
+    payload = {
+        "name": settings.app_name,
+        "targetUrl": target_url,
+        "asyncEvents": list(events.keys()),
+        "query": app.webhook_router.http_routes_subscriptions.get(next(iter(events))),
+        "secretKey": secret,
+        "isActive": True,
+    }
+    try:
+        async with SaleorAPI(saleor_api_url, auth_token) as api:
+            data = await api.execute(WEBHOOK_CREATE, {"input": payload})
+    except SaleorAPIError as exc:
+        logger.error("webhookCreate failed (GraphQL): %s", exc.errors or exc)
+        return None
+    result = data.get("webhookCreate") or {}
+    if result.get("errors") or not result.get("webhook"):
+        logger.error("webhookCreate rejected: %s", result.get("errors"))
+        return None
+    return WebhookData(webhook_id=result["webhook"]["id"], webhook_secret_key=secret)
+
+
 async def install(
     request: Request,
     data: InstallData,
     _domain_is_valid=Depends(verify_saleor_domain),
     saleor_domain=Depends(saleor_domain_header),
 ):
-    """Copy of saleor_app.endpoints.install with one fix: ``request.url_for``
-    returns a URL object on current Starlette, which the framework uses as a
-    dict key (unhashable -> 500 on install). We stringify it."""
-    events = defaultdict(list)
-    router = getattr(request.app, "webhook_router", None)
-    if router is not None:
-        target = str(request.url_for("handle-webhook"))
-        for event_type in router.http_routes:
-            events[target].append((event_type, router.http_routes_subscriptions.get(event_type)))
-
-    webhook_data = None
-    if events:
-        try:
-            webhook_data = await install_app(
-                saleor_domain=saleor_domain,
-                auth_token=data.auth_token,
-                manifest=request.app.manifest,
-                events=events,
-                use_insecure_saleor_http=request.app.use_insecure_saleor_http,
-            )
-        except (InstallAppError, GraphQLError) as exc:
-            logger.error("Install failed for %s: %s", saleor_domain, exc)
-            raise HTTPException(status_code=403, detail="Incorrect token or not enough permissions")
-
+    """Replaces saleor_app.endpoints.install (Copy of saleor_app.endpoints.install
+    at heart, but it works with current Starlette and surfaces Saleor's
+    webhook validation errors instead of crashing on them)."""
+    scheme = "http" if settings.use_insecure_saleor_http else "https"
+    api_url = _saleor_api_url.get() or f"{scheme}://{saleor_domain}/graphql/"
+    target_url = str(request.url_for("handle-webhook"))
+    webhook_data = await register_webhook(api_url, data.auth_token, target_url)
     await request.app.save_app_data(
         saleor_domain=saleor_domain, auth_token=data.auth_token, webhook_data=webhook_data
     )
