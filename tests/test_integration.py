@@ -26,6 +26,7 @@ class FakeSaleor:
         self.media = [{"id": "M1", "alt": "front", "type": "IMAGE", "url": None, "optimized": None},
                       {"id": "M2", "alt": "", "type": "VIDEO", "url": "https://youtu.be/x", "optimized": None}]
         self.uploaded = []
+        self.webhooks = []
 
         @self.app.api_route("/media/{name}", methods=["GET", "HEAD"])
         async def media(name: str):
@@ -46,6 +47,9 @@ class FakeSaleor:
                 body = await request.json()
             q, v = body["query"], body.get("variables") or {}
             self.calls.append((q.split("(")[0].split()[-1], v))
+            if "webhookCreate" in q:
+                self.webhooks.append(v["input"])
+                return {"data": {"webhookCreate": {"webhookErrors": [], "webhook": {"id": "WH1"}}}}
             if "tokenVerify" in q:
                 return {"data": {"tokenVerify": {"isValid": v["token"] == "staff-jwt", "user": {"id": "U"}}}}
             if "query ProductsWithMedia" in q:
@@ -144,3 +148,17 @@ def test_preview_endpoint(saleor):
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/webp"
     assert int(r.headers["X-Optimized-Bytes"]) < int(r.headers["X-Original-Bytes"])
+
+
+def test_install_registers_webhook(saleor):
+    c = TestClient(app)
+    r = c.post("/configuration/install", json={"auth_token": "app-token"},
+               headers={"x-saleor-domain": f"127.0.0.1:{saleor.port}", "saleor-api-url": saleor.base + "/graphql/"})
+    assert r.status_code == 200, r.text
+    wh = saleor.webhooks[-1]
+    assert wh["targetUrl"] == "http://testserver/webhook"
+    assert wh["events"] == ["PRODUCT_MEDIA_CREATED"]
+    assert "ProductMediaCreated" in wh["query"]
+    inst = db.get_installation(f"127.0.0.1:{saleor.port}")
+    assert inst.webhook_id == "WH1" and inst.webhook_secret == wh["secretKey"]
+    assert inst.saleor_api_url == saleor.base + "/graphql/"

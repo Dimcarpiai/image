@@ -95,3 +95,40 @@ including the multipart upload, delete, reorder and metadata calls.
   images; for very large catalogs move `optimize_product` into a task queue.
 - AVIF output requires Pillow ≥ 11.3 with AVIF support (included in the official wheels). The UI disables
   the option when unavailable.
+
+## Deploying to a VPS (Hetzner) with Docker
+
+The dashboard requires https, so the app runs behind [Caddy](https://caddyserver.com/), which obtains
+and renews a Let's Encrypt certificate automatically. Point an A record at the server and open ports
+80/443 first.
+
+**Fresh server (nothing else on ports 80/443)** - `docker-compose.standalone.yaml` brings its own Caddy:
+
+```bash
+git clone https://github.com/Dimcarpiai/image.git && cd image
+cp .env.example .env && nano .env
+DOMAIN=optimizer.example.com docker compose -f docker-compose.standalone.yaml up -d --build
+```
+
+**Server that already runs Caddy in another compose project** - `docker-compose.prod.yaml` joins that
+project's network instead of starting a second proxy:
+
+```bash
+cp .env.example .env && nano .env
+NETWORK=<other-project>_default docker compose -f docker-compose.prod.yaml up -d --build
+```
+
+then add to the other project's Caddyfile and reload it:
+
+```
+optimizer.example.com {
+    encode zstd gzip
+    reverse_proxy image-optimizer:8080
+}
+```
+
+```bash
+docker exec <caddy-container> caddy reload --config /etc/caddy/Caddyfile
+```
+
+To update after a code change: `git pull` and rerun the same `docker compose ... up -d --build` command.

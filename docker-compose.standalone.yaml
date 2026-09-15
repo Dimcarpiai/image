@@ -1,0 +1,31 @@
+# Production on a fresh VPS with nothing else on ports 80/443: app + its own Caddy.
+# Usage: DOMAIN=optimizer.example.com docker compose -f docker-compose.standalone.yaml up -d --build
+services:
+  image-optimizer:
+    build: .
+    env_file: .env
+    volumes:
+      - optimizer-data:/data
+    restart: unless-stopped
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:?set DOMAIN=your.host.name}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - image-optimizer
+
+volumes:
+  optimizer-data:
+  caddy-data:
+  caddy-config:

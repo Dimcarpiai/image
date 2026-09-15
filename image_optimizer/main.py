@@ -3,12 +3,17 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import BackgroundTasks, Body, Depends, Request
+from collections import defaultdict
+
+from fastapi import BackgroundTasks, Body, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from saleor_app.app import SaleorApp
-from saleor_app.deps import saleor_domain_header
-from saleor_app.schemas.core import DomainName, WebhookData
+from saleor_app.deps import saleor_domain_header, verify_saleor_domain
+from saleor_app.errors import InstallAppError
+from saleor_app.install import install_app
+from saleor_app.saleor.exceptions import GraphQLError
+from saleor_app.schemas.core import DomainName, InstallData, WebhookData
 from saleor_app.schemas.manifest import Extension, Manifest, MountType, TargetType
 from saleor_app.schemas.utils import LazyPath, LazyUrl
 
@@ -178,6 +183,48 @@ async def product_media_created(
     )
     return {"status": "scheduled", "media": media["id"]}
 
+
+# --------------------------------------------------------------------------
+# Install endpoint
+# --------------------------------------------------------------------------
+async def install(
+    request: Request,
+    data: InstallData,
+    _domain_is_valid=Depends(verify_saleor_domain),
+    saleor_domain=Depends(saleor_domain_header),
+):
+    """Copy of saleor_app.endpoints.install with one fix: ``request.url_for``
+    returns a URL object on current Starlette, which the framework uses as a
+    dict key (unhashable -> 500 on install). We stringify it."""
+    events = defaultdict(list)
+    router = getattr(request.app, "webhook_router", None)
+    if router is not None:
+        target = str(request.url_for("handle-webhook"))
+        for event_type in router.http_routes:
+            events[target].append((event_type, router.http_routes_subscriptions.get(event_type)))
+
+    webhook_data = None
+    if events:
+        try:
+            webhook_data = await install_app(
+                saleor_domain=saleor_domain,
+                auth_token=data.auth_token,
+                manifest=request.app.manifest,
+                events=events,
+                use_insecure_saleor_http=request.app.use_insecure_saleor_http,
+            )
+        except (InstallAppError, GraphQLError) as exc:
+            logger.error("Install failed for %s: %s", saleor_domain, exc)
+            raise HTTPException(status_code=403, detail="Incorrect token or not enough permissions")
+
+    await request.app.save_app_data(
+        saleor_domain=saleor_domain, auth_token=data.auth_token, webhook_data=webhook_data
+    )
+    return {}
+
+
+# Registered before the framework's own /install so ours wins (same path + name).
+app.configuration_router.post("/install", name="app-install")(install)
 
 # --------------------------------------------------------------------------
 # Routes

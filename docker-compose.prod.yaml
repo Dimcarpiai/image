@@ -1,0 +1,21 @@
+# Production on a VPS where another compose project already runs Caddy on 80/443:
+# join that project's network and add a site block to its Caddyfile (see README).
+# NETWORK defaults to dimcarpi_default; override with NETWORK=... if yours differs.
+services:
+  image-optimizer:
+    build: .
+    container_name: image-optimizer
+    env_file: .env
+    volumes:
+      - optimizer-data:/data
+    restart: unless-stopped
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: ${NETWORK:-dimcarpi_default}
+
+volumes:
+  optimizer-data:
