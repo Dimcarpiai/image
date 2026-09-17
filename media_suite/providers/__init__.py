@@ -4,8 +4,9 @@ from .base import GenerateRequest, ImageInput, ModelSpec, Output, Provider, Prov
 from .fal_provider import FalProvider
 from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider
+from .stability_provider import StabilityProvider
 
-PROVIDERS: Dict[str, Provider] = {p.spec.id: p for p in (OpenAIProvider(), GeminiProvider(), FalProvider())}
+PROVIDERS: Dict[str, Provider] = {p.spec.id: p for p in (OpenAIProvider(), GeminiProvider(), StabilityProvider(), FalProvider())}
 
 MODES = [
     {"id": "scene", "label": "Scene from prompt", "help": "New photo of the product in a scene you describe."},

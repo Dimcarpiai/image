@@ -37,3 +37,24 @@ def test_crypto_roundtrip_and_signature():
     assert decrypt(encrypt("sk-abc")) == "sk-abc"
     s = sign("asset1")
     assert verify("asset1", s) and not verify("asset2", s) and not verify("asset1", "1.bad")
+
+
+def test_stability_forms():
+    from io import BytesIO
+    from PIL import Image
+    from media_suite.providers.stability_provider import StabilityProvider, _fit
+    buf = BytesIO(); Image.new("RGB", (900, 600), (1, 2, 3)).save(buf, "PNG"); png = buf.getvalue()
+    sp = StabilityProvider()
+    src = ImageInput(png)
+    path, form = sp._form("relight", GenerateRequest("scene", "on a marble table", [src], None, {"light_source_direction": "left"}))
+    fields = {f[0]["name"]: f for f in form._fields}
+    assert path.endswith("/replace-background-and-relight") and "subject_image" in fields and fields["light_source_direction"][2] == "left"
+    path, form = sp._form("sd3.5-large", GenerateRequest("scene", "beach", [src], None, {"strength": "0.65"}))
+    fields = {f[0]["name"]: f[2] for f in form._fields}
+    assert path.endswith("/generate/sd3") and fields["mode"] == "image-to-image" and fields["strength"] == "0.65"
+    path, form = sp._form("svd", GenerateRequest("video", "", [src], None, {"size": "1024x576"}))
+    assert path == "/image-to-video"
+    assert Image.open(BytesIO(_fit(png, 1024, 576))).size == (1024, 576)
+    with pytest.raises(ProviderError):
+        sp._form("relight", GenerateRequest("scene", "x", [], None))
+    assert [p["id"] for p in catalog({})["providers"]] == ["openai", "gemini", "stability", "fal"]

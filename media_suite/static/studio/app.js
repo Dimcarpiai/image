@@ -158,7 +158,7 @@
       const s = el("select", { "data-opt": name }); for (const v of values) s.append(el("option", { value: v }, v));
       box.append(el("label", {}, name.replace("_", " "), s));
     }
-    $("#cost-hint").textContent = { openai: "Billed by OpenAI per image.", gemini: "Billed by Google per image.", fal: "Billed by fal.ai per image / per second of video." }[p?.id] || "";
+    $("#cost-hint").textContent = { openai: "Billed by OpenAI per image.", gemini: "Billed by Google per image.", fal: "Billed by fal.ai per image / per second of video.", stability: "Billed by Stability AI in credits per image / video." }[p?.id] || "";
   }
   $("#provider").addEventListener("change", renderModelSelect);
   $("#model").addEventListener("change", renderModelOptions);

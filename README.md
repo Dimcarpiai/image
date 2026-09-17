@@ -5,8 +5,8 @@ One Saleor app, one domain, one installation — two dashboard tools under **Cat
 - **Image Optimizer** — resize, convert (WebP/AVIF/JPEG/PNG), compress and replace product images; optional
   automatic optimization of new uploads (webhook); before/after preview; savings stats.
 - **AI Studio** — generate new product images and clips with the AI provider you pick per generation:
-  scenes from a prompt (OpenAI gpt-image-2.5 / Gemini 3.x Image), virtual try-on on a model photo
-  (fal.ai FASHN / Image-Apps / FLUX 2, or OpenAI/Gemini), image-to-video (Kling 3, Veo 3, Seedance 2).
+  scenes from a prompt (OpenAI gpt-image-2.5 / Gemini 3.x Image / Stability AI background-relight, Ultra, SD 3.5), virtual try-on on a model photo
+  (fal.ai FASHN / Image-Apps / FLUX 2, or OpenAI/Gemini), image-to-video (Kling 3, Veo 3, Seedance 2, Stable Video Diffusion).
   Results can be added to the product as media. Provider keys are entered in the app and stored encrypted.
 
 Built on [mirumee/saleor-app-framework-python](https://github.com/mirumee/saleor-app-framework-python) with
