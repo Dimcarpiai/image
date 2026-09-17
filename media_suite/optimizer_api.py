@@ -18,7 +18,7 @@ from .optimizer import OptimizeSettings, avif_supported, optimize_image
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .service import ProductResult, optimize_product
 
-router = APIRouter(prefix="/api", tags=["api"])
+router = APIRouter(prefix="/api/optimizer", tags=["optimizer"])
 
 
 def _jwt_claims(token: str) -> dict:
@@ -44,12 +44,12 @@ async def current_shop(deps: ConfigurationDataDeps = Depends()) -> Installation:
 # -- settings ---------------------------------------------------------------
 @router.get("/settings", response_model=OptimizeSettings)
 async def get_settings(shop: Installation = Depends(current_shop)):
-    return db.get_settings(shop.domain)
+    return db.get_optimize_settings(shop.domain)
 
 
 @router.put("/settings", response_model=OptimizeSettings)
 async def put_settings(data: OptimizeSettings, shop: Installation = Depends(current_shop)):
-    db.save_settings(shop.domain, data)
+    db.save_optimize_settings(shop.domain, data)
     return data
 
 
@@ -114,7 +114,7 @@ class OptimizeRequest(BaseModel):
 
 @router.post("/optimize", response_model=ProductResult)
 async def optimize(req: OptimizeRequest, shop: Installation = Depends(current_shop)):
-    cfg = req.settings or db.get_settings(shop.domain)
+    cfg = req.settings or db.get_optimize_settings(shop.domain)
     try:
         return await optimize_product(shop, req.product_id, cfg, req.media_ids, req.force)
     except SaleorAPIError as exc:
@@ -130,7 +130,7 @@ class PreviewRequest(BaseModel):
 async def preview(req: PreviewRequest, shop: Installation = Depends(current_shop)):
     """Return the optimized bytes for one image without touching Saleor, so the
     dashboard can show a before/after with the real numbers."""
-    cfg = req.settings or db.get_settings(shop.domain)
+    cfg = req.settings or db.get_optimize_settings(shop.domain)
     async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
         try:
             original = await api.download(req.url)

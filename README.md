@@ -1,134 +1,61 @@
-# Saleor Image Optimizer
+# Saleor Media Suite
 
-A Saleor app, built on [mirumee/saleor-app-framework-python](https://github.com/mirumee/saleor-app-framework-python),
-that installs into the dashboard as an extension (Catalog → **Image Optimizer**) and optimizes product images:
+One Saleor app, one domain, one installation — two dashboard tools under **Catalog**:
 
-- resize to a maximum width/height
-- convert to WebP, AVIF, JPEG or PNG (or keep the format)
-- recompress with a chosen quality, strip EXIF/ICC metadata
-- replace the original media in place (order preserved) or add the optimized copy next to it
-- optional: optimize every newly uploaded product image automatically (`PRODUCT_MEDIA_CREATED` webhook)
-- before/after preview with real byte counts, per-shop settings, running totals of bytes saved
+- **Image Optimizer** — resize, convert (WebP/AVIF/JPEG/PNG), compress and replace product images; optional
+  automatic optimization of new uploads (webhook); before/after preview; savings stats.
+- **AI Studio** — generate new product images and clips with the AI provider you pick per generation:
+  scenes from a prompt (OpenAI gpt-image-2.5 / Gemini 3.x Image), virtual try-on on a model photo
+  (fal.ai FASHN / Image-Apps / FLUX 2, or OpenAI/Gemini), image-to-video (Kling 3, Veo 3, Seedance 2).
+  Results can be added to the product as media. Provider keys are entered in the app and stored encrypted.
 
-Optimized images are tagged in the media's private metadata (`image_optimizer.optimized=true`) so they are
-never processed twice.
+Built on [mirumee/saleor-app-framework-python](https://github.com/mirumee/saleor-app-framework-python) with
+the compatibility fixes for current Starlette/Saleor 3.21 applied.
 
-## How it fits together
-
-```
-Saleor dashboard ──iframe──▶ GET /                     static/index.html + app.js
-        │  AppBridge handshake gives the page a staff token
-        │
-        └──▶ /api/*  (X-Saleor-Domain + X-Saleor-Token headers, verified by the framework)
-                │
-                └──▶ Saleor GraphQL (app token from install):
-                     products/media  →  download  →  Pillow  →  productMediaCreate (multipart)
-                                                            →  productMediaDelete + productMediaReorder
-                                                            →  updatePrivateMetadata
-Saleor ──webhook──▶ POST /webhook  (HMAC signature verified by the framework)
-```
+## Layout
 
 | Path | Purpose |
 |---|---|
-| `image_optimizer/main.py` | `SaleorApp` setup, manifest, dashboard page, webhook |
-| `image_optimizer/api.py` | JSON API used by the dashboard page |
-| `image_optimizer/service.py` | fetch → optimize → upload → replace flow |
-| `image_optimizer/optimizer.py` | pure Pillow image processing (unit tested) |
-| `image_optimizer/saleor_api.py` | GraphQL client incl. multipart upload |
-| `image_optimizer/db.py` | SQLite store for installs, settings, history |
-| `image_optimizer/static/` | the page rendered inside the dashboard |
+| `media_suite/main.py` | manifest with two extensions, install (+ optimizer webhook), pages |
+| `media_suite/optimizer_api.py`, `optimizer.py`, `service.py` | Image Optimizer |
+| `media_suite/studio_api.py`, `jobs.py`, `providers/` | AI Studio |
+| `media_suite/saleor_api.py`, `db.py`, `crypto.py`, `settings.py` | shared |
+| `media_suite/static/optimizer/`, `static/studio/`, `static/app.css` | dashboard pages |
 
-## Running locally
+## Deploy
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
 cp .env.example .env
-uvicorn image_optimizer.main:app --reload --port 8080 --proxy-headers --forwarded-allow-ips='*'
+sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" .env       # required
+# server that already runs Caddy in another compose project:
+NETWORK=<other-project>_edge docker compose -f docker-compose.prod.yaml up -d --build
 ```
-
-The dashboard has to reach your machine over https, so expose it with a tunnel
-(`ngrok http 8080`, `cloudflared tunnel --url http://localhost:8080`, ...). Then in the dashboard:
-**Extensions → Add Extension → Install from manifest URL** and paste
-
+Add to that Caddyfile and reload/restart Caddy:
 ```
-https://<your-tunnel-host>/configuration/manifest
+media.example.com {
+    encode zstd gzip
+    reverse_proxy media-suite:8080
+}
 ```
+Install from the dashboard: `https://media.example.com/configuration/manifest`.
 
-The manifest builds its URLs from the incoming request, which is why `--proxy-headers` matters.
+Uninstall the old standalone Image Optimizer first if it is installed; this app replaces it (same features,
+new app id). Optimizer settings need to be set once again.
 
-With Docker: `docker compose up --build` (fill in `.env` first).
+Files (model photos, generated media, SQLite) live in the `media-suite-data` volume.
 
-### Configuration (`.env`)
-
-| Variable | Meaning |
-|---|---|
-| `ALLOWED_SALEOR_DOMAINS` | Comma separated list of shops allowed to install. Empty = any (dev only). |
-| `USE_INSECURE_SALEOR_HTTP` | `true` when Saleor itself runs on plain http (local docker). |
-| `DATABASE_PATH` | SQLite file for installs/settings. |
-| `DEVELOPMENT_AUTH_TOKEN` | Lets you call `/api/*` without a dashboard token while developing. Never set in production. |
-
-### Tests
+## Tests
 
 ```bash
 pip install pytest pytest-asyncio "httpx<0.28"
 pytest
 ```
+19 tests: optimizer image processing, provider request building, manifest/install, and full flows for both
+tools against a fake Saleor and fake AI providers. The real OpenAI/Gemini/fal integrations follow the current
+docs but were not run with live keys.
 
-`tests/test_integration.py` runs the whole optimize flow against a fake Saleor GraphQL server,
-including the multipart upload, delete, reorder and metadata calls.
+## Notes
 
-## Notes and caveats
-
-- **The framework is unmaintained** (last commit May 2023). It requires `pydantic<2` and `fastapi<0.100`,
-  which this project pins. Saleor 3.2x still sends the `X-Saleor-*` headers and honours webhook
-  `secretKey` (HMAC) that the framework depends on, so it works today; when Saleor 4.0 drops those,
-  this app will need its own install/webhook handling.
-- One framework bug is worked around in `main.py` (`AbsoluteUrl`): with current Starlette the framework
-  would emit manifest URLs as `{"_url": ...}` objects and the install fails.
-- Saleor already serves resized thumbnails via `ProductMedia.url(size:, format:)`. This app optimizes the
-  *originals* those thumbnails are generated from, which is what you need when your storefront links the
-  original URL or when uploaded originals are unnecessarily large.
-- Replacing a media item gives it a **new ID and URL**. Anything that stored the old media ID (a CMS,
-  a search index) needs to re-sync. Turn off *Replace the original image* if that is a problem.
-- Processing runs in the request handler, one product per request. Fine for catalogs of a few thousand
-  images; for very large catalogs move `optimize_product` into a task queue.
-- AVIF output requires Pillow ≥ 11.3 with AVIF support (included in the official wheels). The UI disables
-  the option when unavailable.
-
-## Deploying to a VPS (Hetzner) with Docker
-
-The dashboard requires https, so the app runs behind [Caddy](https://caddyserver.com/), which obtains
-and renews a Let's Encrypt certificate automatically. Point an A record at the server and open ports
-80/443 first.
-
-**Fresh server (nothing else on ports 80/443)** - `docker-compose.standalone.yaml` brings its own Caddy:
-
-```bash
-git clone https://github.com/Dimcarpiai/image.git && cd image
-cp .env.example .env && nano .env
-DOMAIN=optimizer.example.com docker compose -f docker-compose.standalone.yaml up -d --build
-```
-
-**Server that already runs Caddy in another compose project** - `docker-compose.prod.yaml` joins that
-project's network instead of starting a second proxy:
-
-```bash
-cp .env.example .env && nano .env
-NETWORK=<other-project>_default docker compose -f docker-compose.prod.yaml up -d --build
-```
-
-then add to the other project's Caddyfile and reload it:
-
-```
-optimizer.example.com {
-    encode zstd gzip
-    reverse_proxy image-optimizer:8080
-}
-```
-
-```bash
-docker exec <caddy-container> caddy reload --config /etc/caddy/Caddyfile
-```
-
-To update after a code change: `git pull` and rerun the same `docker compose ... up -d --build` command.
+- `SECRET_KEY` must not change afterwards (saved provider keys would become unreadable).
+- One gunicorn worker: AI jobs run in-process. For heavy use move `jobs.py` to a queue.
+- Videos can't be attached to Saleor products (Saleor only accepts YouTube/Vimeo links); download them.

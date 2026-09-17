@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Studio</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main id="app" class="app" hidden>
+    <header class="topbar">
+      <div>
+        <h1>AI Studio</h1>
+        <p class="muted">Generate new product photos and clips with the AI provider of your choice.</p>
+      </div>
+      <button class="btn" id="open-settings">API keys</button>
+    </header>
+
+    <section class="panel" id="settings" hidden>
+      <div class="panel-head"><h2>Provider API keys</h2><button class="btn btn-quiet" id="close-settings">Close</button></div>
+      <div class="keys" id="keys"></div>
+    </section>
+
+    <div class="layout">
+      <aside class="panel side">
+        <div class="panel-head"><h2>Products</h2></div>
+        <div class="side-search"><input type="search" id="search" placeholder="Search products" aria-label="Search products"></div>
+        <ul class="product-list" id="product-list"></ul>
+        <div class="table-foot"><span id="page-info"></span><button class="btn btn-sm" id="load-more" hidden>Load more</button></div>
+      </aside>
+
+      <section class="work">
+        <div class="panel" id="empty-state"><p class="empty">Pick a product on the left to start.</p></div>
+
+        <div id="workspace" hidden>
+          <section class="panel">
+            <div class="panel-head"><h2 id="product-title">Product</h2><span class="muted" id="product-sub"></span></div>
+            <p class="muted pad">Select the reference image(s) the AI should work from.</p>
+            <div class="media-grid" id="product-media"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div class="tabs" id="mode-tabs" role="tablist"></div>
+            </div>
+            <div class="gen-form">
+              <p class="muted" id="mode-help"></p>
+              <div class="row">
+                <label>Provider <select id="provider"></select></label>
+                <label>Model <select id="model"></select></label>
+                <label>Variations <select id="count"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+                <div id="model-options" class="row-inline"></div>
+              </div>
+              <div id="model-photo-block" hidden>
+                <div class="between">
+                  <h3>Model photo</h3>
+                  <label class="btn btn-sm">Upload photo <input type="file" id="model-upload" accept="image/*" hidden></label>
+                </div>
+                <p class="muted">A clear, front-facing photo of the person. Only use photos you have the rights to.</p>
+                <div class="media-grid small" id="model-photos"></div>
+              </div>
+              <label>Prompt
+                <textarea id="prompt" rows="3" placeholder="e.g. on a wooden table in a bright kitchen, soft morning light, shallow depth of field"></textarea>
+              </label>
+              <div class="between">
+                <span class="muted" id="cost-hint"></span>
+                <button class="btn btn-primary" id="generate">Generate</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Results</h2><button class="btn btn-quiet" id="refresh-jobs">Refresh</button></div>
+            <div id="jobs" class="jobs"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="waiting" class="waiting">
+    <p>Connecting to the Saleor dashboard…</p>
+    <p class="muted">Open this page from the Saleor dashboard under Catalog → AI Studio.</p>
+  </div>
+
+  <dialog id="lightbox" class="lightbox">
+    <form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form>
+    <div id="lightbox-body"></div>
+  </dialog>
+
+  <script src="/static/studio/app.js"></script>
+</body>
+</html>

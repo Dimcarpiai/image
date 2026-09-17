@@ -11,9 +11,9 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from image_optimizer.db import db
-from image_optimizer.main import app
-from image_optimizer import settings as settings_module
+from media_suite.db import db
+from media_suite.main import app
+from media_suite import settings as settings_module
 
 
 class FakeSaleor:
@@ -54,6 +54,10 @@ class FakeSaleor:
                 return {"data": {"webhookCreate": {"errors": [], "webhook": {"id": "WH1"}}}}
             if "tokenVerify" in q:
                 return {"data": {"tokenVerify": {"isValid": v["token"] == "staff-jwt", "user": {"id": "U"}}}}
+            if "query StudioProducts" in q:
+                return {"data": {"products": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "edges": [{"node": {"id": "P1", "name": "Shirt", "thumbnail": None, "category": {"name": "Shirts"},
+                                            "media": [dict(m, thumb=m["url"]) for m in self.media]}}]}}}
             if "query ProductsWithMedia" in q:
                 return {"data": {"products": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
                         "edges": [{"node": {"id": "P1", "name": "Shirt", "media": [dict(m, thumb=m["url"]) for m in self.media]}}]}}}
@@ -104,23 +108,23 @@ def _headers(saleor):
 
 def test_rejects_invalid_token(saleor):
     c = TestClient(app)
-    r = c.get("/api/settings", headers={**_headers(saleor), "x-saleor-token": "bad"})
+    r = c.get("/api/optimizer/settings", headers={**_headers(saleor), "x-saleor-token": "bad"})
     assert r.status_code == 400
 
 
 def test_products_and_optimize_flow(saleor):
     c = TestClient(app)
-    r = c.get("/api/products", headers=_headers(saleor))
+    r = c.get("/api/optimizer/products", headers=_headers(saleor))
     assert r.status_code == 200, r.text
     prod = r.json()["items"][0]
     assert prod["media"][0]["bytes"] == len(saleor.png)
     assert prod["media"][0]["optimized"] is False
 
-    r = c.put("/api/settings", headers=_headers(saleor), json={"format": "webp", "quality": 80, "max_width": 1200, "max_height": 1200,
+    r = c.put("/api/optimizer/settings", headers=_headers(saleor), json={"format": "webp", "quality": 80, "max_width": 1200, "max_height": 1200,
               "strip_metadata": True, "replace_original": True, "skip_if_not_smaller": True, "auto_optimize_new_uploads": False})
     assert r.status_code == 200
 
-    r = c.post("/api/optimize", headers=_headers(saleor), json={"product_id": "P1"})
+    r = c.post("/api/optimizer/optimize", headers=_headers(saleor), json={"product_id": "P1"})
     assert r.status_code == 200, r.text
     res = r.json()["results"]
     assert [x["status"] for x in res] == ["optimized", "skipped"]
@@ -137,16 +141,16 @@ def test_products_and_optimize_flow(saleor):
     assert saleor.media[0]["optimized"] == "true"
 
     # second run is a no-op
-    r = c.post("/api/optimize", headers=_headers(saleor), json={"product_id": "P1"})
+    r = c.post("/api/optimizer/optimize", headers=_headers(saleor), json={"product_id": "P1"})
     assert r.json()["results"][0]["reason"] == "already optimized"
 
     # stats recorded
-    assert c.get("/api/capabilities", headers=_headers(saleor)).json()["stats"]["images"] == 1
+    assert c.get("/api/optimizer/capabilities", headers=_headers(saleor)).json()["stats"]["images"] == 1
 
 
 def test_preview_endpoint(saleor):
     c = TestClient(app)
-    r = c.post("/api/preview", headers=_headers(saleor), json={"url": saleor.base + "/media/front.png"})
+    r = c.post("/api/optimizer/preview", headers=_headers(saleor), json={"url": saleor.base + "/media/front.png"})
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/webp"
     assert int(r.headers["X-Optimized-Bytes"]) < int(r.headers["X-Original-Bytes"])
@@ -164,6 +168,39 @@ def test_install_registers_webhook(saleor):
     inst = db.get_installation(f"127.0.0.1:{saleor.port}")
     assert inst.webhook_id == "WH1" and inst.webhook_secret == wh["secretKey"]
     assert inst.saleor_api_url == saleor.base + "/graphql/"
+
+
+def test_studio_flow_in_same_app(saleor, monkeypatch):
+    """AI Studio endpoints share the installation with the optimizer."""
+    import asyncio
+    from media_suite.providers import PROVIDERS, Output
+
+    class FakeProvider:
+        spec = PROVIDERS["gemini"].spec
+        async def generate(self, model, req, api_key):
+            await asyncio.sleep(0.05)
+            b = BytesIO(); Image.new("RGB", (400, 400), (9, 9, 9)).save(b, "PNG")
+            return [Output(b.getvalue(), "image/png")]
+
+    monkeypatch.setitem(PROVIDERS, "gemini", FakeProvider())
+    with TestClient(app) as c:
+        assert c.put("/api/studio/keys", headers=_headers(saleor), json={"provider": "gemini", "api_key": "g-key"}).json()["configured"]
+        prod = c.get("/api/studio/products", headers=_headers(saleor)).json()["items"][0]
+        assert prod["category"] == "Shirts"
+        r = c.post("/api/studio/generate", headers=_headers(saleor), json={
+            "mode": "scene", "provider": "gemini", "model": "gemini-3.1-flash-image", "product_id": "P1",
+            "prompt": "on a beach", "product_image_urls": [prod["media"][0]["url"]]})
+        assert r.status_code == 200, r.text
+        jid = r.json()["id"]
+        for _ in range(50):
+            j = c.get(f"/api/studio/jobs/{jid}", headers=_headers(saleor)).json()
+            if j["status"] in ("done", "error"): break
+            time.sleep(0.1)
+        assert j["status"] == "done", j
+        assert c.get(j["assets"][0]["url"]).status_code == 200
+        # optimizer settings and studio keys live side by side in the same settings row
+        assert c.get("/api/optimizer/settings", headers=_headers(saleor)).json()["quality"] == 80
+        assert c.get("/api/studio/catalog", headers=_headers(saleor)).json()["providers"][1]["configured"]
 
 
 def test_install_survives_webhook_rejection(saleor, monkeypatch):

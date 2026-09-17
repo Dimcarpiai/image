@@ -2,12 +2,12 @@
 # join that project's network and add a site block to its Caddyfile (see README).
 # NETWORK defaults to dimcarpi_default; override with NETWORK=... if yours differs.
 services:
-  image-optimizer:
+  media-suite:
     build: .
-    container_name: image-optimizer
+    container_name: media-suite
     env_file: .env
     volumes:
-      - optimizer-data:/data
+      - media-suite-data:/data
     restart: unless-stopped
     networks:
       - proxy
@@ -18,4 +18,4 @@ networks:
     name: ${NETWORK:-dimcarpi_default}
 
 volumes:
-  optimizer-data:
+  media-suite-data:

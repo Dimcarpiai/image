@@ -13,7 +13,8 @@ from saleor_app.schemas.core import DomainName, InstallData, WebhookData
 from saleor_app.schemas.manifest import Extension, Manifest, MountType, TargetType
 from saleor_app.schemas.utils import LazyPath, LazyUrl
 
-from .api import router as api_router
+from .optimizer_api import router as optimizer_router
+from .studio_api import media_router, router as studio_router
 from .db import db
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .service import optimize_product
@@ -34,6 +35,9 @@ class AbsoluteUrl(LazyUrl):
 
 logging.basicConfig(level=logging.DEBUG if settings.debug else logging.INFO)
 logger = logging.getLogger(__name__)
+
+if not settings.secret_key:
+    raise RuntimeError("SECRET_KEY must be set (openssl rand -hex 32)")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -79,9 +83,9 @@ manifest = Manifest(
     id=settings.app_id,
     name=settings.app_name,
     version=settings.app_version,
-    about="Resizes, converts (WebP/AVIF) and compresses product images so your storefront loads faster.",
+    about="Image Optimizer (resize, WebP/AVIF, compression) and AI Studio (AI-generated product photos, try-on, video) in one app.",
     permissions=["MANAGE_PRODUCTS"],
-    data_privacy="No personal data is stored. Product images are processed in memory.",
+    data_privacy="Provider API keys are stored encrypted. Product images are sent to the AI provider you select in AI Studio.",
     data_privacy_url=AbsoluteUrl("app-page"),
     homepage_url=AbsoluteUrl("app-page"),
     support_url=AbsoluteUrl("app-page"),
@@ -89,13 +93,10 @@ manifest = Manifest(
     app_url=AbsoluteUrl("app-page"),
     token_target_url=AbsoluteUrl("app-install"),
     extensions=[
-        Extension(
-            label="Image Optimizer",
-            mount=MountType.NAVIGATION_CATALOG,
-            target=TargetType.APP_PAGE,
-            permissions=["MANAGE_PRODUCTS"],
-            url=LazyPath("app-page"),
-        )
+        Extension(label="Image Optimizer", mount=MountType.NAVIGATION_CATALOG, target=TargetType.APP_PAGE,
+                  permissions=["MANAGE_PRODUCTS"], url=LazyPath("optimizer-page")),
+        Extension(label="AI Studio", mount=MountType.NAVIGATION_CATALOG, target=TargetType.APP_PAGE,
+                  permissions=["MANAGE_PRODUCTS"], url=LazyPath("studio-page")),
     ],
 )
 
@@ -125,6 +126,16 @@ async def capture_saleor_api_url(request: Request, call_next):
 @app.get("/", name="app-page", response_class=HTMLResponse, include_in_schema=False)
 async def app_page():
     return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/optimizer", name="optimizer-page", response_class=HTMLResponse, include_in_schema=False)
+async def optimizer_page():
+    return (STATIC_DIR / "optimizer" / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/studio", name="studio-page", response_class=HTMLResponse, include_in_schema=False)
+async def studio_page():
+    return (STATIC_DIR / "studio" / "index.html").read_text(encoding="utf-8")
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -171,7 +182,7 @@ async def product_media_created(
     installation = db.get_installation(saleor_domain)
     if not installation:
         return {"status": "ignored", "reason": "not installed"}
-    cfg = db.get_settings(saleor_domain)
+    cfg = db.get_optimize_settings(saleor_domain)
     if not cfg.auto_optimize_new_uploads:
         return {"status": "ignored", "reason": "auto-optimize disabled"}
 
@@ -246,5 +257,16 @@ app.configuration_router.post("/install", name="app-install")(install)
 # --------------------------------------------------------------------------
 # Routes
 # --------------------------------------------------------------------------
+
+
+@app.on_event("startup")
+async def mark_interrupted_jobs():
+    """AI jobs run inside the worker process; anything still running at startup was cut off by a restart."""
+    with db._lock, db._conn:  # noqa: SLF001
+        db._conn.execute("UPDATE jobs SET status='error', error='interrupted by app restart' WHERE status IN ('queued','running')")
+
+
 app.include_saleor_app_routes()  # /configuration/manifest + /configuration/install
-app.include_router(api_router)
+app.include_router(optimizer_router)
+app.include_router(studio_router)
+app.include_router(media_router)

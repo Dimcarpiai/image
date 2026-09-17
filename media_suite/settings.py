@@ -4,21 +4,22 @@ from pydantic import BaseSettings
 
 
 class Settings(BaseSettings):
-    app_id: str = "saleor.image-optimizer"
-    app_name: str = "Image Optimizer"
-    app_version: str = "0.1.0"
+    app_id: str = "saleor.media-suite"
+    app_name: str = "Media Suite"
+    app_version: str = "0.2.0"
 
-    # Comma separated; kept as a plain string because pydantic's BaseSettings
-    # would otherwise try to JSON-decode the env var and crash on "a.com,b.com".
+    secret_key: str = ""                      # encrypts provider keys, signs media URLs
     allowed_saleor_domains_raw: str = ""
     use_insecure_saleor_http: bool = False
     development_auth_token: str = ""
     database_path: str = "./data/app.sqlite3"
+    data_dir: str = "./data"
     debug: bool = False
 
-    # Hard limits, independent of per-shop settings
     max_download_bytes: int = 40 * 1024 * 1024
-    http_timeout: int = 60
+    max_upload_bytes: int = 25 * 1024 * 1024
+    http_timeout: int = 180
+    job_timeout: int = 900
 
     @property
     def allowed_saleor_domains(self) -> List[str]:

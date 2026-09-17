@@ -7,7 +7,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY image_optimizer ./image_optimizer
+COPY media_suite ./media_suite
 COPY gunicorn.conf.py .
 
 RUN mkdir -p /data
@@ -15,4 +15,4 @@ ENV DATABASE_PATH=/data/app.sqlite3
 VOLUME ["/data"]
 EXPOSE 8080
 
-CMD ["gunicorn", "image_optimizer.main:app", "-c", "gunicorn.conf.py"]
+CMD ["gunicorn", "media_suite.main:app", "-c", "gunicorn.conf.py"]

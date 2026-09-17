@@ -2,7 +2,7 @@ from io import BytesIO
 
 from PIL import Image
 
-from image_optimizer.optimizer import OptimizeSettings, optimize_image
+from media_suite.optimizer import OptimizeSettings, optimize_image
 
 
 def make_image(mode="RGB", size=(3000, 2000), fmt="PNG"):

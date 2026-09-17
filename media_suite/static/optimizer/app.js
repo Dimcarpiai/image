@@ -83,7 +83,7 @@
     $("#waiting").hidden = true;
     $("#app").hidden = false;
     try {
-      const [settings, caps] = await Promise.all([api("/api/settings"), api("/api/capabilities")]);
+      const [settings, caps] = await Promise.all([api("/api/optimizer/settings"), api("/api/optimizer/capabilities")]);
       state.settings = settings;
       fillSettings(settings);
       if (!caps.avif) $("#avif-option").disabled = true;
@@ -123,7 +123,7 @@
     const btn = $("#save-settings");
     btn.disabled = true;
     try {
-      state.settings = await api("/api/settings", { method: "PUT", body: JSON.stringify(readSettings()) });
+      state.settings = await api("/api/optimizer/settings", { method: "PUT", body: JSON.stringify(readSettings()) });
       log("Settings saved.", "ok");
       notifyDashboard("success", "Image Optimizer", "Settings saved");
     } catch (e) {
@@ -141,7 +141,7 @@
     try {
       const params = new URLSearchParams({ search: state.search, first: "20" });
       if (state.endCursor) params.set("after", state.endCursor);
-      const page = await api(`/api/products?${params}`);
+      const page = await api(`/api/optimizer/products?${params}`);
       state.products.push(...page.items);
       state.endCursor = page.endCursor;
       state.hasNextPage = page.hasNextPage;
@@ -235,7 +235,7 @@
     renderProducts();
     const p = state.products.find((x) => x.id === productId);
     try {
-      const result = await api("/api/optimize", {
+      const result = await api("/api/optimizer/optimize", {
         method: "POST",
         body: JSON.stringify({ product_id: productId, media_ids: mediaIds, force, settings: readSettings() }),
       });
@@ -252,7 +252,7 @@
       }
       if (done) notifyDashboard("success", "Image Optimizer", `${result.product_name}: ${done} image${done === 1 ? "" : "s"} optimized, ${fmtBytes(saved)} saved`);
       await refreshProduct(productId);
-      const caps = await api("/api/capabilities");
+      const caps = await api("/api/optimizer/capabilities");
       renderStats(caps.stats, caps.avif);
     } catch (e) {
       log(`${p ? p.name : productId}: ${e.message}`, "err");
@@ -267,7 +267,7 @@
     // Cheapest way to refresh one row with the framework's API: re-query by name.
     const p = state.products.find((x) => x.id === productId);
     if (!p) return;
-    const page = await api(`/api/products?${new URLSearchParams({ search: p.name, first: "50" })}`);
+    const page = await api(`/api/optimizer/products?${new URLSearchParams({ search: p.name, first: "50" })}`);
     const fresh = page.items.find((x) => x.id === productId);
     if (fresh) Object.assign(p, fresh);
   }
@@ -299,7 +299,7 @@
     $("#preview-after-cap").textContent = "Optimizing preview…";
     dlg.showModal();
     try {
-      const res = await api("/api/preview", { method: "POST", raw: true, body: JSON.stringify({ url: m.url, settings: readSettings() }) });
+      const res = await api("/api/optimizer/preview", { method: "POST", raw: true, body: JSON.stringify({ url: m.url, settings: readSettings() }) });
       const blob = await res.blob();
       const skipped = res.headers.get("X-Skipped");
       $("#preview-after").src = URL.createObjectURL(blob);

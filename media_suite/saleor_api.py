@@ -98,6 +98,17 @@ mutation UpdatePrivateMetadata($id: ID!, $input: [MetadataInput!]!) {
 """
 
 
+STUDIO_PRODUCTS = """
+query StudioProducts($first: Int!, $after: String, $search: String) {
+  products(first: $first, after: $after, filter: { search: $search }, sortBy: { field: NAME, direction: ASC }) {
+    totalCount
+    pageInfo { hasNextPage endCursor }
+    edges { node { id name thumbnail(size: 256) { url } category { name } media { id alt type url thumb: url(size: 512) } } }
+  }
+}
+"""
+
+
 class SaleorAPI:
     def __init__(self, api_url: str, auth_token: str):
         self.api_url = api_url
@@ -162,6 +173,10 @@ class SaleorAPI:
         data = await self.execute(
             PRODUCTS_WITH_MEDIA, {"first": first, "after": after, "search": search or None}
         )
+        return data["products"]
+
+    async def list_products_studio(self, first: int = 20, after: Optional[str] = None, search: str = "") -> dict:
+        data = await self.execute(STUDIO_PRODUCTS, {"first": first, "after": after, "search": search or None})
         return data["products"]
 
     async def get_product(self, product_id: str) -> Optional[dict]:

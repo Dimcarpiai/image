@@ -1,5 +1,5 @@
 # Mirrors the deployment recipe from the framework README.
-workers = 2
+workers = 1  # jobs run in-process; keep one worker so a job and its polling share state
 keepalive = 30
 worker_class = "uvicorn.workers.UvicornH11Worker"
 bind = ["0.0.0.0:8080"]

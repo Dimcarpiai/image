@@ -7,4 +7,5 @@ aiofiles
 jinja2>=3
 pillow>=11.3
 python-multipart
+cryptography
 gunicorn

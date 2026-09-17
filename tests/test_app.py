@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from image_optimizer.db import db
-from image_optimizer.main import app
-from image_optimizer.optimizer import OptimizeSettings
+from media_suite.db import db
+from media_suite.main import app
+from media_suite.optimizer import OptimizeSettings
 from saleor_app.schemas.core import WebhookData
 
 client = TestClient(app)
@@ -10,26 +10,27 @@ client = TestClient(app)
 
 def test_manifest():
     data = client.get("/configuration/manifest").json()
-    assert data["id"] == "saleor.image-optimizer"
+    assert data["id"] == "saleor.media-suite"
     assert data["permissions"] == ["MANAGE_PRODUCTS"]
     assert data["appUrl"] == "http://testserver/"
     assert data["tokenTargetUrl"] == "http://testserver/configuration/install"
-    assert data["extensions"][0]["mount"] == "NAVIGATION_CATALOG"
-    assert data["extensions"][0]["target"] == "APP_PAGE"
-    assert data["extensions"][0]["url"] == "/"
+    assert [e["label"] for e in data["extensions"]] == ["Image Optimizer", "AI Studio"]
+    assert [e["url"] for e in data["extensions"]] == ["/optimizer", "/studio"]
+    assert all(e["mount"] == "NAVIGATION_CATALOG" and e["target"] == "APP_PAGE" for e in data["extensions"])
 
 
 def test_app_page_and_static():
-    assert "Image Optimizer" in client.get("/").text
-    assert client.get("/static/app.js").status_code == 200
+    assert "Media Suite" in client.get("/").text
+    assert "Image Optimizer" in client.get("/optimizer").text and "AI Studio" in client.get("/studio").text
+    assert client.get("/static/optimizer/app.js").status_code == 200 and client.get("/static/studio/app.js").status_code == 200
 
 
 def test_db_roundtrip():
     db.save_installation("shop.example.com", "tok", "https://shop.example.com/graphql/", WebhookData(webhook_id="W", webhook_secret_key="s3cret"))
     inst = db.get_installation("shop.example.com")
     assert inst.saleor_api_url == "https://shop.example.com/graphql/"
-    db.save_settings("shop.example.com", OptimizeSettings(quality=50))
-    assert db.get_settings("shop.example.com").quality == 50
+    db.save_optimize_settings("shop.example.com", OptimizeSettings(quality=50))
+    assert db.get_optimize_settings("shop.example.com").quality == 50
 
 
 def test_webhook_rejects_bad_signature():

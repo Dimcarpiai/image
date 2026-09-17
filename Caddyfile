@@ -1,4 +1,4 @@
 {$DOMAIN} {
     encode gzip
-    reverse_proxy image-optimizer:8080
+    reverse_proxy media-suite:8080
 }
