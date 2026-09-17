@@ -15,6 +15,9 @@
   };
   if (qs.get("theme") === "dark" || (!qs.get("theme") && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.dataset.theme = "dark";
 
+
+  // The dashboard doesn't always pass ?domain= to extension pages; the token's issuer is the API URL.
+  const domainFromToken = (t) => { try { const p = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); return p.iss ? new URL(p.iss).host : ""; } catch { return ""; } };
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs = {}, ...children) => {
     const n = document.createElement(tag);
@@ -29,7 +32,7 @@
 
   window.addEventListener("message", (e) => {
     const d = e.data || {};
-    if (d.type === "handshake" && d.payload?.token) { const first = !state.token; state.token = d.payload.token; if (first) boot(); }
+    if (d.type === "handshake" && d.payload?.token) { const first = !state.token; state.token = d.payload.token; if (!state.domain) state.domain = domainFromToken(state.token); if (first) boot(); }
     else if (d.type === "theme" && d.payload) document.documentElement.dataset.theme = d.payload.theme === "dark" ? "dark" : "";
   });
   window.parent.postMessage({ type: "notifyReady", payload: { actionId: crypto.randomUUID() } }, "*");
@@ -68,7 +71,7 @@
         } catch (e) { notify("error", "AI Studio", e.message); }
       } }, "Save");
       box.append(el("div", { class: "key-row" },
-        el("div", {}, el("strong", {}, p.label), " ", p.configured ? el("span", { class: "badge badge-ok" }, "configured") : el("span", { class: "badge badge-muted" }, "no key")),
+        el("div", { class: "who" }, el("span", {}, p.label), p.configured ? el("span", { class: "badge badge-ok" }, "configured") : el("span", { class: "badge badge-muted" }, "no key")),
         input, save, el("div", { class: "help" }, p.key_help + (p.configured ? " Leave empty and save to remove the key." : ""))));
     }
   }
@@ -90,8 +93,8 @@
     const ul = $("#product-list"); ul.replaceChildren();
     for (const p of state.products) {
       ul.append(el("li", { class: state.product?.id === p.id ? "active" : "", onclick: () => selectProduct(p) },
-        p.thumbnail ? el("img", { src: p.thumbnail, alt: "" }) : el("div", { class: "" }),
-        el("div", {}, el("div", { class: "name" }, p.name), el("div", { class: "muted", style: "font-size:12px" }, `${p.media.length} image${p.media.length === 1 ? "" : "s"}${p.category ? " · " + p.category : ""}`))));
+        p.thumbnail ? el("img", { src: p.thumbnail, alt: "", loading: "lazy" }) : el("div", { class: "thumb-empty" }),
+        el("div", { style: "min-width:0" }, el("div", { class: "name" }, p.name), el("div", { class: "sub" }, `${p.media.length} image${p.media.length === 1 ? "" : "s"}${p.category ? " · " + p.category : ""}`))));
     }
     if (!state.products.length) ul.append(el("li", { class: "muted" }, "No products found."));
   }
@@ -247,5 +250,5 @@
     $("#lightbox").showModal();
   }
 
-  if (qs.get("token")) { state.token = qs.get("token"); boot(); }
+  if (qs.get("token")) { state.token = qs.get("token"); if (!state.domain) state.domain = domainFromToken(state.token); boot(); }
 })();

@@ -21,6 +21,9 @@
     document.documentElement.dataset.theme = "dark";
   }
 
+
+  // The dashboard doesn't always pass ?domain= to extension pages; the token's issuer is the API URL.
+  const domainFromToken = (t) => { try { const p = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); return p.iss ? new URL(p.iss).host : ""; } catch { return ""; } };
   const $ = (sel) => document.querySelector(sel);
   const el = (tag, attrs = {}, ...children) => {
     const node = document.createElement(tag);
@@ -51,7 +54,7 @@
     const data = event.data || {};
     if (data.type === "handshake" && data.payload && data.payload.token) {
       const first = !state.token;
-      state.token = data.payload.token;
+      state.token = data.payload.token; if (!state.domain) state.domain = domainFromToken(state.token);
       if (first) boot();
     } else if (data.type === "theme" && data.payload) {
       document.documentElement.dataset.theme = data.payload.theme === "dark" ? "dark" : "";
@@ -322,5 +325,5 @@
   $("#clear-log").addEventListener("click", () => $("#log").replaceChildren());
 
   // Dev convenience: outside the dashboard, allow ?token= for local testing.
-  if (qs.get("token")) { state.token = qs.get("token"); boot(); }
+  if (qs.get("token")) { state.token = qs.get("token"); if (!state.domain) state.domain = domainFromToken(state.token); boot(); }
 })();

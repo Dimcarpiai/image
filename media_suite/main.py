@@ -128,14 +128,17 @@ async def app_page():
     return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
 
+NO_STORE = {"Cache-Control": "no-store"}  # pages must always pick up new asset versions
+
+
 @app.get("/optimizer", name="optimizer-page", response_class=HTMLResponse, include_in_schema=False)
 async def optimizer_page():
-    return (STATIC_DIR / "optimizer" / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse((STATIC_DIR / "optimizer" / "index.html").read_text(encoding="utf-8"), headers=NO_STORE)
 
 
 @app.get("/studio", name="studio-page", response_class=HTMLResponse, include_in_schema=False)
 async def studio_page():
-    return (STATIC_DIR / "studio" / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse((STATIC_DIR / "studio" / "index.html").read_text(encoding="utf-8"), headers=NO_STORE)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -252,6 +255,27 @@ async def install(
 
 
 # Registered before the framework's own /install so ours wins (same path + name).
+async def manifest_endpoint(request: Request):
+    """Replaces the framework's manifest endpoint, which resolves URLs on the first
+    request and then freezes them (a stray internal request would poison the manifest).
+    This resolves them from the current request every time."""
+    data = manifest.dict(by_alias=True, exclude_none=True)
+
+    def resolve(value):
+        if isinstance(value, LazyPath):
+            return str(request.app.url_path_for(value.name))
+        if isinstance(value, LazyUrl):
+            return str(request.url_for(value.name))
+        if isinstance(value, dict):
+            return {k: resolve(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [resolve(v) for v in value]
+        return value
+
+    return resolve(data)
+
+
+app.configuration_router.get("/manifest", name="app-manifest")(manifest_endpoint)
 app.configuration_router.post("/install", name="app-install")(install)
 
 # --------------------------------------------------------------------------

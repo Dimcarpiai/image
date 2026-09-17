@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=0.2.1">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -30,7 +30,7 @@
       </aside>
 
       <section class="work">
-        <div class="panel" id="empty-state"><p class="empty">Pick a product on the left to start.</p></div>
+        <div class="panel" id="empty-state"><div class="empty-state"><strong>Pick a product to start</strong><span>Choose one on the left, tick a reference image, then describe the scene, put it on a model, or make a clip.</span></div></div>
 
         <div id="workspace" hidden>
           <section class="panel">
@@ -88,6 +88,6 @@
     <div id="lightbox-body"></div>
   </dialog>
 
-  <script src="/static/studio/app.js"></script>
+  <script src="/static/studio/app.js?v=0.2.1"></script>
 </body>
 </html>
