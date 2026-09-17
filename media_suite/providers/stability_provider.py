@@ -1,5 +1,6 @@
 """Stability AI (London) - Stable Image v2beta: background replace & relight, image-to-image, image-to-video."""
 import asyncio
+import base64
 from io import BytesIO
 from typing import List
 
@@ -86,16 +87,22 @@ class StabilityProvider(Provider):
 
     async def _poll(self, s: aiohttp.ClientSession, model: str, gen_id: str, api_key: str) -> Output:
         url = f"{API}/image-to-video/result/{gen_id}" if model == "svd" else f"{API}/results/{gen_id}"
-        accept = "video/*" if model == "svd" else "image/*"
+        # The async results endpoints accept only */* (raw bytes) or application/json (base64).
         for _ in range(120):
             await asyncio.sleep(5)
-            async with s.get(url, headers={"Authorization": f"Bearer {api_key}", "Accept": accept}) as resp:
+            async with s.get(url, headers={"Authorization": f"Bearer {api_key}", "Accept": "*/*"}) as resp:
                 if resp.status == 202:
                     continue
                 if resp.status != 200:
                     raise ProviderError(f"Stability: {await _error(resp)}")
-                mime = resp.headers.get("Content-Type", "").split(";")[0] or ("video/mp4" if model == "svd" else "image/png")
-                return Output(await resp.read(), mime)
+                mime = resp.headers.get("Content-Type", "").split(";")[0]
+                if mime.startswith("application/json"):
+                    body = await resp.json(content_type=None)
+                    b64 = body.get("image") or body.get("video") or body.get("result")
+                    if not b64:
+                        raise ProviderError(f"Stability: unexpected result payload {str(body)[:120]}")
+                    return Output(base64.b64decode(b64), "video/mp4" if model == "svd" else "image/png")
+                return Output(await resp.read(), mime or ("video/mp4" if model == "svd" else "image/png"))
         raise ProviderError("Stability: generation timed out")
 
 
