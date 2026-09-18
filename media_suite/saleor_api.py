@@ -27,7 +27,7 @@ class SaleorAPIError(Exception):
 
 PRODUCTS_WITH_MEDIA = """
 query ProductsWithMedia($first: Int!, $after: String, $search: String) {
-  products(first: $first, after: $after, filter: { search: $search }, sortBy: { field: NAME, direction: ASC }) {
+  products(first: $first, after: $after, filter: { search: $search }, sortBy: { field: LAST_MODIFIED_AT, direction: DESC }) {
     totalCount
     pageInfo { hasNextPage endCursor }
     edges {
@@ -100,7 +100,7 @@ mutation UpdatePrivateMetadata($id: ID!, $input: [MetadataInput!]!) {
 
 STUDIO_PRODUCTS = """
 query StudioProducts($first: Int!, $after: String, $search: String) {
-  products(first: $first, after: $after, filter: { search: $search }, sortBy: { field: NAME, direction: ASC }) {
+  products(first: $first, after: $after, filter: { search: $search }, sortBy: { field: LAST_MODIFIED_AT, direction: DESC }) {
     totalCount
     pageInfo { hasNextPage endCursor }
     edges { node { id name thumbnail(size: 256) { url } category { name } productType { name }
