@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.0.0">
+  <link rel="stylesheet" href="/static/app.css?v=1.0.1">
 </head>
 <body>
   <main id="app" class="app studio" hidden>
@@ -88,6 +88,7 @@
             <div id="looks-list"></div>
             <div class="row3"><label>Name <input id="look-name" placeholder="Winter Polo Collection"></label>
               <label>Background <select id="look-bg"></select></label><label>Pose <select id="look-pose"></select></label></div>
+            <div class="row3"><label>Image size <select id="look-size"><option value="">Automatic</option><option value="1024x1536">Portrait 3:4</option><option value="1024x1024">Square</option><option value="1536x1024">Landscape</option></select></label></div>
             <div class="between"><label class="check"><input type="checkbox" id="look-use-model" checked> use the locked model</label><button class="btn btn-sm" id="look-save">Save look</button></div>
           </div>
         </section>
@@ -117,6 +118,6 @@
   <dialog id="clone-dialog" class="lightbox"><form method="dialog" class="preview-head"><h2>Clone product</h2><button class="btn btn-quiet">Cancel</button></form><div class="gen-form" style="width:min(600px,88vw)"><label>New name <input id="clone-name"></label><div class="row2"><label>New colour <input id="clone-color" placeholder="e.g. Navy"></label><label>SKU suffix <input id="clone-suffix"></label></div><label class="check"><input type="checkbox" id="clone-images" checked> copy existing images</label><label class="check"><input type="checkbox" id="clone-stock"> copy stock</label><div class="between"><span class="muted" id="clone-msg"></span><button class="btn btn-primary" id="clone-go">Create</button></div></div></dialog>
   <dialog id="lightbox" class="lightbox"><form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form><div id="lightbox-body"></div></dialog>
 
-  <script src="/static/studio/app.js?v=1.0.0"></script>
+  <script src="/static/studio/app.js?v=1.0.1"></script>
 </body>
 </html>

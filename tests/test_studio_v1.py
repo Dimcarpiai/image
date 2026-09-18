@@ -167,3 +167,24 @@ def test_pack_and_bulk_with_look(saleor, monkeypatch):
         wait_done(c, saleor); wait_done(c, saleor, "P2")
         assert any("light grey" in call["prompt"] for call in rec.calls)
         assert c.delete(f"/api/studio/looks/{look['id']}", headers=H(saleor)).json()["deleted"] == look["id"]
+
+
+def test_pose_aware_provider_and_background_actions(saleor, monkeypatch):
+    class FalRec(Recorder): pass
+    fal = FalRec(PROVIDERS["fal"]); oai = Recorder(PROVIDERS["openai"]); stab = Recorder(PROVIDERS["stability"])
+    monkeypatch.setitem(PROVIDERS, "fal", fal); monkeypatch.setitem(PROVIDERS, "openai", oai); monkeypatch.setitem(PROVIDERS, "stability", stab)
+    with TestClient(app) as c:
+        for pid in ("fal", "openai", "stability"):
+            c.put("/api/studio/keys", headers=H(saleor), json={"provider": pid, "api_key": "k"})
+        m = c.post("/api/studio/assets/models", headers=H(saleor), files={"file": ("m.png", png(), "image/png")}, data={"label": "M"}).json()
+        # standing pose -> FASHN (image-only engine); walking -> prompt-aware engine
+        r1 = c.post("/api/studio/run", headers=H(saleor), json={"task": "model", "product_id": "P1", "refs": {"product_urls": [saleor.base + "/media/front.png"], "model_asset_id": m["id"]}, "options": {"pose": "standing"}}).json()
+        r2 = c.post("/api/studio/run", headers=H(saleor), json={"task": "model", "product_id": "P1", "refs": {"product_urls": [saleor.base + "/media/front.png"], "model_asset_id": m["id"]}, "options": {"pose": "walking"}}).json()
+        assert r1["provider"] == "fal" and r2["provider"] == "openai"
+        res = wait_done(c, saleor)
+        src = next(a for r in res for a in r["assets"])
+        r3 = c.post("/api/studio/run", headers=H(saleor), json={"task": "remove_bg", "product_id": "P1", "refs": {"source_asset_id": src["id"]}}).json()
+        r4 = c.post("/api/studio/run", headers=H(saleor), json={"task": "replace_bg", "product_id": "P1", "refs": {"source_asset_id": src["id"]}, "options": {"background": "beige"}}).json()
+        assert (r3["provider"], r3["model"]) == ("stability", "remove-bg") and (r4["provider"], r4["model"]) == ("stability", "relight")
+        wait_done(c, saleor)
+        assert any(call["options"].get("background_prompt", "").startswith("warm beige") for call in stab.calls)

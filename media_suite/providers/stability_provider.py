@@ -23,6 +23,7 @@ class StabilityProvider(Provider):
             ModelSpec("relight", "Replace background & relight (product stays identical)", ["scene"],
                       options={"light_source_direction": ["none", "above", "below", "left", "right"], "preserve_original_subject": ["0.6", "0.8", "1.0"]}),
             ModelSpec("edit", "Search & replace edit (targeted change)", ["edit"], options={"search": ["shirt", "logo", "collar", "sleeve", "trousers", "background"]}),
+            ModelSpec("remove-bg", "Remove background (cut-out PNG)", ["edit"]),
             ModelSpec("ultra", "Stable Image Ultra (image-to-image)", ["scene"],
                       options={"strength": ["0.35", "0.5", "0.65", "0.8"]}),
             ModelSpec("sd3.5-large", "Stable Diffusion 3.5 Large (image-to-image)", ["scene"],
@@ -44,6 +45,13 @@ class StabilityProvider(Provider):
             form.add_field("aspect_ratio", o.get("aspect_ratio", "3:4"))
             form.add_field("output_format", "png")
             return "/stable-image/generate/core", form
+        if model == "remove-bg":
+            if not req.product_images:
+                raise ProviderError("select a source image")
+            src = req.product_images[0]
+            form.add_field("image", src.data, filename="src.png", content_type=src.mime)
+            form.add_field("output_format", "png")
+            return "/stable-image/edit/remove-background", form
         if model == "edit":
             if not req.product_images:
                 raise ProviderError("select a source image")

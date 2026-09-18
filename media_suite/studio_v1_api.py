@@ -22,7 +22,7 @@ from .studio_api import PRODUCT_SUMMARY, _asset_out, _budget_check, _product_sum
 router = APIRouter(prefix="/api/studio", tags=["studio-v1"])
 
 # task -> provider mode
-TASK_MODE = {"product": "scene", "model": "tryon", "variants": "edit", "edit": "edit", "video": "video"}
+TASK_MODE = {"product": "scene", "model": "tryon", "variants": "edit", "edit": "edit", "video": "video", "remove_bg": "edit", "replace_bg": "scene"}
 # preferred provider/model per mode, first configured wins
 PREFERRED = {
     "scene": [("openai", "gpt-image-2.5-sunburst"), ("gemini", "gemini-3.1-flash-image"), ("stability", "relight")],
@@ -60,7 +60,9 @@ async def tasks(shop: Installation = Depends(current_shop)):
         "locks": [{"id": k, "label": k.capitalize()} for k in LOCKS],
         "logo": [{"id": "preserve", "label": "Keep existing logo exactly"}, {"id": "remove", "label": "Remove logo"}, {"id": "add", "label": "Add uploaded company logo"}],
         "packs": [{"id": k, "label": v["label"], "steps": [f"{t}: {', '.join(f'{a}={b}' for a, b in o.items() if a != 'extra')}" for t, o in v["steps"]]} for k, v in PACKS.items()],
-        "edit_actions": [{"id": k, "label": k.replace("_", " ").capitalize(), "needs_value": "{value}" in v[0]} for k, v in EDIT_ACTIONS.items()],
+        "edit_actions": [{"id": k, "label": k.replace("_", " ").capitalize(), "needs_value": "{value}" in v[0]} for k, v in EDIT_ACTIONS.items()]
+                        + [{"id": "remove_bg", "label": "Remove background (cut-out PNG)", "needs_value": False, "task": "remove_bg"},
+                           {"id": "replace_bg", "label": "Replace background (relight)", "needs_value": False, "task": "replace_bg"}],
         "providers_ready": {mode: next(((p, m) for p, m in lst if keys.get(p)), None) for mode, lst in PREFERRED.items()},
         "locked_model": st.get("locked_model"),
         "looks": st.get("looks", []),
@@ -153,20 +155,32 @@ def _create_job(shop: Installation, product: dict, body: RunBody) -> dict:
         refs.model_asset_id = st.get("locked_model") or st.get("default_models", {}).get(product.get("product_type") or "") or st.get("default_models", {}).get("*")
     if mode == "tryon" and not refs.model_asset_id:
         raise HTTPException(status_code=400, detail="choose a model photo (or Keep this model on an earlier result)")
-    if task in ("variants", "edit") and not refs.source_asset_id:
+    if task in ("variants", "edit", "remove_bg", "replace_bg") and not refs.source_asset_id:
         raise HTTPException(status_code=400, detail="choose the image to edit")
+    if task in ("remove_bg", "replace_bg"):
+        keys = db.get_settings(shop.domain).get("keys", {})
+        if not keys.get("stability"):
+            raise HTTPException(status_code=400, detail="Remove/replace background needs a Stability AI key (Settings)")
+        body.advanced.provider, body.advanced.model = "stability", ("remove-bg" if task == "remove_bg" else "relight")
+        refs.product_urls = []
     if task == "product" and not refs.product_urls:
         refs.product_urls = [m["url"] for m in product["media"][:1]]
     if task == "video" and not refs.product_urls and not refs.source_asset_id:
         refs.product_urls = [m["url"] for m in product["media"][:1]]
 
-    provider, model = pick_provider(shop.domain, mode, body.advanced.dict())
+    needs_prompt = mode == "tryon" and (body.options.pose != "standing" or bool(refs.style_url) or bool(body.options.extra))
+    if needs_prompt and not body.advanced.provider:
+        keys = db.get_settings(shop.domain).get("keys", {})
+        pref = [(pv, m) for pv, m in PREFERRED["tryon"] if pv in PROMPT_AWARE and keys.get(pv)] + [(pv, m) for pv, m in PREFERRED["tryon"] if pv not in PROMPT_AWARE and keys.get(pv)]
+        provider, model = (pref[0] if pref else pick_provider(shop.domain, mode, None))
+    else:
+        provider, model = pick_provider(shop.domain, mode, body.advanced.dict())
     counts = {"product": len(refs.product_urls) + (1 if refs.source_asset_id and task not in ("variants", "edit") else 0),
               "model": 1 if (mode == "tryon" and refs.model_asset_id) else 0, "fabric": len(refs.fabric_asset_ids),
               "style": 1 if refs.style_url else 0, "logo": 1 if (refs.logo_asset_id and body.options.logo == "add") else 0}
     if task in ("variants", "edit"):
         counts["product"] = len(refs.product_urls)
-    prompt = build_prompt(task, product, body.options.dict(), counts)
+    prompt = build_prompt(task if task not in ("remove_bg", "replace_bg") else "edit", product, body.options.dict(), counts) if task not in ("remove_bg", "replace_bg") else ""
 
     n = max(1, min(body.advanced.n, 4))
     options: Dict = {"n": n, "raw_prompt": provider in PROMPT_AWARE}
@@ -179,6 +193,9 @@ def _create_job(shop: Installation, product: dict, body: RunBody) -> dict:
         options["category"] = product.get("tryon_category", "auto")
     if provider == "stability" and model == "relight":
         options["background_prompt"] = BACKGROUNDS.get(body.options.background, BACKGROUNDS["white"]) + (" " + body.options.extra if body.options.extra else "")
+    if task == "replace_bg":
+        # relight takes the subject from the source image; pass it as the (only) product image
+        refs.product_urls = []
     if provider == "stability" and model == "edit":
         options["search"] = {"remove_logo": "logo", "fix_collar": "collar", "fix_sleeve": "sleeve", "change_trousers": "trousers", "change_background": "background"}.get(body.options.action or "", "shirt")
     if provider == "local":
@@ -193,10 +210,11 @@ def _create_job(shop: Installation, product: dict, body: RunBody) -> dict:
     job = db.create_job(shop.domain, mode, provider, model, product["id"], {
         "task": task, "prompt": prompt, "product_image_urls": refs.product_urls,
         "source_first_asset_ids": [refs.source_asset_id] if refs.source_asset_id else [],
+        "background": body.options.background,
         "source_asset_ids": [], "extra_ref_asset_ids": extra_assets, "extra_ref_urls": extra_urls,
         "model_asset_id": refs.model_asset_id if mode == "tryon" else None,
         "options": options, "variant_id": body.variant_id, "parent_asset_id": body.parent_asset_id or refs.source_asset_id,
-        "batch": body.batch, "label": body.label or (TASKS[task]["label"] + (f" · {body.options.pose}" if task == "model" else "") + (f" · {body.options.color}" if body.options.color else "")),
+        "batch": body.batch, "label": body.label or (TASKS.get(task, {"label": task.replace("_", " ").capitalize()})["label"] + (f" · {body.options.pose}" if task == "model" else "") + (f" · {body.options.color}" if body.options.color else "")),
         "look_id": body.look_id, "cost_eur": cost,
     })
     start_job(shop, job["id"])

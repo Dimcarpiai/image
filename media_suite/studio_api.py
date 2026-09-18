@@ -708,7 +708,8 @@ async def auto_pack_for_product(installation: Installation, product_id: str, med
         urls = [media_url] if media_url else [m["url"] for m in product["media"][:1]]
         if not urls:
             return
-        result = await _run_pack(installation, product, urls, None, None, True, uuid.uuid4().hex)
-        log.info("auto pack for %s: %s", product_id, result)
+        from .studio_v1_api import PackBody, Refs, _run_pack_v1
+        result = await _run_pack_v1(installation, product, PackBody(product_id=product_id, pack="product", refs=Refs(product_urls=urls)), uuid.uuid4().hex)
+        log.info("auto pack for %s: %s", product_id, [j.get("id") or j.get("error") for j in result])
     except Exception as exc:  # noqa: BLE001
         log.warning("auto pack for %s failed: %s", product_id, exc)
