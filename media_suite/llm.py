@@ -45,7 +45,7 @@ async def _openai(model: str, system: str, user_text: str, images: List[ImageInp
         body["response_format"] = {"type": "json_object"}
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as s:
         async with s.post("https://api.openai.com/v1/chat/completions", json=body, headers={"Authorization": f"Bearer {api_key}"}) as resp:
-            data = await resp.json(content_type=None)
+            data = await _json_or_error(resp, "OpenAI")
             if resp.status != 200:
                 raise ProviderError(f"OpenAI: {data.get('error', {}).get('message', resp.status)}")
     return data["choices"][0]["message"]["content"]
@@ -59,7 +59,7 @@ async def _gemini(model: str, system: str, user_text: str, images: List[ImageInp
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as s:
         async with s.post(url, json=body, headers={"x-goog-api-key": api_key}) as resp:
-            data = await resp.json(content_type=None)
+            data = await _json_or_error(resp, "Gemini")
             if resp.status != 200:
                 raise ProviderError(f"Gemini: {data.get('error', {}).get('message', resp.status)}")
     try:
@@ -79,7 +79,11 @@ async def _local(model: str, system: str, user_text: str, images: List[ImageInpu
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as s:
         try:
             async with s.post(f"{url}/llm/chat", json=body, headers={"X-Token": token}) as resp:
-                data = await resp.json(content_type=None)
+                raw = await resp.text()
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    raise ProviderError(f"local server at {url} answered HTTP {resp.status} with a non-JSON page — is the tunnel up and the address current?")
                 if resp.status != 200:
                     raise ProviderError(f"local LLM: {str(data.get('detail') or data)[:300]}")
         except aiohttp.ClientError as exc:
@@ -88,6 +92,14 @@ async def _local(model: str, system: str, user_text: str, images: List[ImageInpu
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError):
         raise ProviderError(f"local LLM returned no text: {str(data)[:200]}")
+
+
+async def _json_or_error(resp: aiohttp.ClientResponse, who: str) -> dict:
+    raw = await resp.text()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        raise ProviderError(f"{who} answered HTTP {resp.status} with a non-JSON response: {raw[:120]}")
 
 
 BACKENDS = {"openai": _openai, "gemini": _gemini, "local": _local}
