@@ -194,14 +194,18 @@ async def product_media_created(
     installation = db.get_installation(saleor_domain)
     if not installation:
         return {"status": "ignored", "reason": "not installed"}
+    scheduled = []
     cfg = db.get_optimize_settings(saleor_domain)
-    if not cfg.auto_optimize_new_uploads:
-        return {"status": "ignored", "reason": "auto-optimize disabled"}
-
-    background_tasks.add_task(
-        optimize_product, installation, media["product"]["id"], cfg, [media["id"]], False
-    )
-    return {"status": "scheduled", "media": media["id"]}
+    if cfg.auto_optimize_new_uploads:
+        background_tasks.add_task(optimize_product, installation, media["product"]["id"], cfg, [media["id"]], False)
+        scheduled.append("optimize")
+    if db.get_settings(saleor_domain).get("studio", {}).get("auto_pack_new_uploads"):
+        from .studio_api import auto_pack_for_product
+        background_tasks.add_task(auto_pack_for_product, installation, media["product"]["id"], media.get("url"))
+        scheduled.append("pack")
+    if not scheduled:
+        return {"status": "ignored", "reason": "automation disabled"}
+    return {"status": "scheduled", "media": media["id"], "tasks": scheduled}
 
 
 # --------------------------------------------------------------------------

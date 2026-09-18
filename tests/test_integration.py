@@ -61,6 +61,10 @@ class FakeSaleor:
             if "query ProductsWithMedia" in q:
                 return {"data": {"products": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
                         "edges": [{"node": {"id": "P1", "name": "Shirt", "media": [dict(m, thumb=m["url"]) for m in self.media]}}]}}}
+            if "query StudioProductSummary" in q:
+                return {"data": {"product": {"id": v["id"], "name": "Polo", "category": {"name": "Shirts"}, "productType": {"name": "Shirt"},
+                                             "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}],
+                                             "media": [{"id": "M1", "alt": "front", "type": "IMAGE", "url": self.base + "/media/front.png", "thumb": self.base + "/media/front.png"}]}}}
             if "query ProductMedia" in q:
                 return {"data": {"product": {"id": "P1", "name": "Shirt", "media": self.media}}}
             if "productMediaCreate" in q:

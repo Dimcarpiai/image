@@ -61,6 +61,11 @@ class Database:
                     error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS jobs_domain ON jobs(domain, created_at);
+                CREATE TABLE IF NOT EXISTS spend (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, domain TEXT NOT NULL, day TEXT NOT NULL,
+                    amount REAL NOT NULL, job_id TEXT, created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS spend_domain_day ON spend(domain, day);
                 """
             )
 
@@ -113,6 +118,24 @@ class Database:
                 "SELECT COUNT(*) AS images, COALESCE(SUM(original_bytes),0) AS original_bytes, COALESCE(SUM(optimized_bytes),0) AS optimized_bytes FROM optimize_log WHERE domain = ?",
                 (domain,)).fetchone()
         return dict(row)
+
+    def add_spend(self, domain: str, amount: float, job_id: Optional[str] = None):
+        with self._lock, self._conn:
+            self._conn.execute("INSERT INTO spend (domain, day, amount, job_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                               (domain, now()[:10], amount, job_id, now()))
+
+    def spend_today(self, domain: str) -> float:
+        with self._lock:
+            row = self._conn.execute("SELECT COALESCE(SUM(amount), 0) AS s FROM spend WHERE domain = ? AND day = ?", (domain, now()[:10])).fetchone()
+        return float(row["s"])
+
+    def count_pending_review(self, domain: str) -> int:
+        return len([a for a in self.list_assets(domain, kind="generated", limit=500) if a["meta"].get("status", "review") == "review"])
+
+    def jobs_in_batch(self, domain: str, batch: str) -> List[dict]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM jobs WHERE domain = ? AND input LIKE ?", (domain, f'%"batch": "{batch}"%')).fetchall()
+        return [self._job_out(dict(r)) for r in rows]
 
     # -- assets -------------------------------------------------------------
     def add_asset(self, domain: str, kind: str, mime: str, path: str, product_id: Optional[str] = None,

@@ -15,7 +15,7 @@ from .settings import settings
 
 logger = logging.getLogger(__name__)
 _running: Dict[str, asyncio.Task] = {}
-_sem = asyncio.Semaphore(3)
+_sem = asyncio.Semaphore(4)
 
 EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm"}
 
@@ -115,7 +115,17 @@ async def _run(installation: Installation, job_id: str):
             req = await _load_inputs(installation, job)
             provider = PROVIDERS[job["provider"]]
             key = provider_key(installation.domain, job["provider"])
-            outputs = await asyncio.wait_for(provider.generate(job["model"], req, key), timeout=settings.job_timeout)
+            outputs = None
+            for attempt in range(3):   # retry transient provider errors (network, 5xx, rate limits)
+                try:
+                    outputs = await asyncio.wait_for(provider.generate(job["model"], req, key), timeout=settings.job_timeout)
+                    break
+                except ProviderError as exc:
+                    msg = str(exc).lower()
+                    transient = any(t in msg for t in ("timeout", "timed out", "cannot reach", "rate limit", "429", "5xx", "502", "503", "504", "overloaded", "try again"))
+                    if not transient or attempt == 2:
+                        raise
+                    await asyncio.sleep(5 * (attempt + 1))
             asset_ids = []
             kind = "model" if job["mode"] == "model" else "generated"
             for i, out in enumerate(outputs):
@@ -127,6 +137,9 @@ async def _run(installation: Installation, job_id: str):
                                            "status": "review" if kind == "generated" else "approved", "preset": job["input"].get("preset", "")})
                 asset_ids.append(asset["id"])
             db.update_job(job_id, "done", asset_ids=asset_ids)
+            from .providers import estimate
+            db.add_spend(installation.domain, estimate(job["provider"], job["model"], job["mode"], len(outputs))["cost_eur"], job_id)
+            await _after_job(installation, job)
         except asyncio.TimeoutError:
             db.update_job(job_id, "error", error="generation timed out")
         except ProviderError as exc:
@@ -136,6 +149,32 @@ async def _run(installation: Installation, job_id: str):
             db.update_job(job_id, "error", error=f"{type(exc).__name__}: {exc}")
         finally:
             _running.pop(job_id, None)
+
+
+async def _after_job(installation: Installation, job: dict):
+    """Batch-complete and review-threshold notifications (Slack/Teams/any webhook URL)."""
+    st = db.get_settings(installation.domain).get("studio", {})
+    url = (st.get("notify_url") or "").strip()
+    if not url:
+        return
+    import aiohttp
+    texts = []
+    batch = job["input"].get("batch")
+    if batch:
+        jobs = db.jobs_in_batch(installation.domain, batch)
+        if jobs and all(j["status"] in ("done", "error") for j in jobs):
+            done = sum(1 for j in jobs if j["status"] == "done")
+            texts.append(f"Media Suite: pack '{batch[:8]}' finished - {done}/{len(jobs)} jobs succeeded, results are in the review queue.")
+    threshold = int(st.get("review_threshold") or 0)
+    pending = db.count_pending_review(installation.domain)
+    if threshold and pending >= threshold and pending % threshold == 0:
+        texts.append(f"Media Suite: {pending} images are waiting for review.")
+    for text in texts:
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
+                await s.post(url, json={"text": text})
+        except Exception:  # noqa: BLE001
+            logger.warning("notify webhook failed")
 
 
 def start_job(installation: Installation, job_id: str):

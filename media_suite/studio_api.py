@@ -13,7 +13,7 @@ from saleor_app.deps import ConfigurationDataDeps
 from .crypto import encrypt, sign, verify
 from .db import Installation, db
 from .jobs import asset_dir, start_job
-from .providers import PROVIDERS, catalog, find_model
+from .providers import PROVIDERS, catalog, estimate, find_model
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .storefront import notify_storefront
 from .clone import clone_product, _attr_input
@@ -89,10 +89,41 @@ async def products(after: Optional[str] = None, search: str = "", first: int = 2
     items = []
     for e in page["edges"]:
         n = e["node"]
+        attrs = {a["attribute"]["slug"]: ", ".join(v["name"] for v in a["values"] if v.get("name")) for a in (n.get("attributes") or []) if a.get("values")}
         items.append({"id": n["id"], "name": n["name"], "category": (n.get("category") or {}).get("name"),
+                      "product_type": (n.get("productType") or {}).get("name"), "attributes": attrs,
                       "thumbnail": (n.get("thumbnail") or {}).get("url"),
+                      "tryon_category": _tryon_category(n), "description_hint": _describe(n, attrs),
                       "media": [m for m in n["media"] if m["type"] == "IMAGE"]})
     return {"items": items, "totalCount": page["totalCount"], "hasNextPage": page["pageInfo"]["hasNextPage"], "endCursor": page["pageInfo"]["endCursor"]}
+
+
+def _tryon_category(n: dict) -> str:
+    text = " ".join([n.get("name") or "", (n.get("category") or {}).get("name") or "", (n.get("productType") or {}).get("name") or ""]).lower()
+    if any(k in text for k in ("dress", "kleid", "jumpsuit", "overall", "romper")):
+        return "one-pieces"
+    if any(k in text for k in ("trouser", "hose", "pant", "jeans", "skirt", "rock", "short", "legging")):
+        return "bottoms"
+    return "tops"
+
+
+def _describe(n: dict, attrs: dict) -> str:
+    color = attrs.get("color") or attrs.get("colour") or attrs.get("farbe") or ""
+    material = attrs.get("material") or attrs.get("fabric") or ""
+    parts = [color, material, (n.get("category") or {}).get("name") or (n.get("productType") or {}).get("name") or ""]
+    return " ".join(p for p in parts if p).strip() or n.get("name", "")
+
+
+def _fill_prompt(prompt: str, product: Optional[dict]) -> str:
+    """Presets may use {name} {color} {material} {category} {product} placeholders."""
+    if not product:
+        return prompt
+    attrs = product.get("attributes") or {}
+    values = {"name": product.get("name", ""), "color": attrs.get("color") or attrs.get("colour") or attrs.get("farbe") or "",
+              "material": attrs.get("material") or attrs.get("fabric") or "", "category": product.get("category") or "", "product": product.get("description_hint") or product.get("name", "")}
+    for k, v in values.items():
+        prompt = prompt.replace("{" + k + "}", v)
+    return prompt
 
 
 # -- assets (model photos + generated) ---------------------------------------
@@ -141,6 +172,55 @@ async def media(asset_id: str, sig: str = Query(...)):
     return FileResponse(row["path"], media_type=row["mime"], headers={"Cache-Control": "private, max-age=3600"})
 
 
+# -- studio settings -------------------------------------------------------------
+class StudioSettings(BaseModel):
+    auto_pack_new_uploads: Optional[bool] = None
+    clean_uploads: Optional[bool] = None
+    daily_budget_eur: Optional[float] = None
+    notify_url: Optional[str] = None
+    review_threshold: Optional[int] = None
+    default_models: Optional[dict] = None      # product type name (or "*") -> model asset id
+
+
+@router.get("/settings")
+async def get_studio_settings(shop: Installation = Depends(current_shop)):
+    st = db.get_settings(shop.domain).get("studio", {})
+    return {"auto_pack_new_uploads": bool(st.get("auto_pack_new_uploads")), "clean_uploads": bool(st.get("clean_uploads")),
+            "daily_budget_eur": float(st.get("daily_budget_eur") or 0), "notify_url": st.get("notify_url", ""),
+            "review_threshold": int(st.get("review_threshold") or 0), "default_models": st.get("default_models", {}),
+            "spent_today_eur": round(db.spend_today(shop.domain), 2), "pending_review": db.count_pending_review(shop.domain)}
+
+
+@router.put("/settings")
+async def put_studio_settings(body: StudioSettings, shop: Installation = Depends(current_shop)):
+    st = db.get_settings(shop.domain)
+    cur = st.setdefault("studio", {})
+    for k, v in body.dict(exclude_none=True).items():
+        cur[k] = v
+    db.save_settings(shop.domain, st)
+    return await get_studio_settings(shop)
+
+
+def _budget_check(domain: str, cost: float):
+    cap = float(db.get_settings(domain).get("studio", {}).get("daily_budget_eur") or 0)
+    if cap and db.spend_today(domain) + cost > cap:
+        raise HTTPException(status_code=402, detail=f"daily budget of €{cap:.2f} would be exceeded (spent €{db.spend_today(domain):.2f} today)")
+
+
+class EstimateBody(BaseModel):
+    provider: str
+    model: str
+    mode: str
+    n: int = 1
+
+
+@router.post("/estimate")
+async def get_estimate(body: EstimateBody, shop: Installation = Depends(current_shop)):
+    e = estimate(body.provider, body.model, body.mode, max(1, body.n))
+    cap = float(db.get_settings(shop.domain).get("studio", {}).get("daily_budget_eur") or 0)
+    return {**e, "spent_today_eur": round(db.spend_today(shop.domain), 2), "daily_budget_eur": cap}
+
+
 # -- review bucket -------------------------------------------------------------
 @router.get("/review")
 async def review_queue(shop: Installation = Depends(current_shop)):
@@ -176,12 +256,22 @@ async def review(body: ReviewBody, shop: Installation = Depends(current_shop)):
         except OSError:
             pass
         return {"asset_id": body.asset_id, "status": "rejected"}
-    if body.decision != "approve":
-        raise HTTPException(status_code=400, detail="decision must be approve or reject")
+    if body.decision not in ("approve", "approve_main"):
+        raise HTTPException(status_code=400, detail="decision must be approve, approve_main or reject")
     if not asset.get("product_id"):
         raise HTTPException(status_code=400, detail="asset has no product")
     result = await attach(AttachBody(asset_id=body.asset_id, product_id=asset["product_id"], alt=asset.get("label") or ""), shop)
-    return {"asset_id": body.asset_id, "status": "approved", **result}
+    if body.decision == "approve_main":
+        try:
+            async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+                prod = await api.get_product(asset["product_id"])
+                ids = [m["id"] for m in (prod or {}).get("media", [])]
+                new_id = result["media"]["id"]
+                if new_id in ids:
+                    await api.reorder_media(asset["product_id"], [new_id] + [i for i in ids if i != new_id])
+        except SaleorAPIError as exc:
+            raise HTTPException(status_code=502, detail={"message": "attached, but reordering failed", "errors": exc.errors})
+    return {"asset_id": body.asset_id, "status": "approved", "main": body.decision == "approve_main", **result}
 
 
 # -- presets & packs ------------------------------------------------------------
@@ -215,28 +305,95 @@ class PackBody(BaseModel):
     product_image_urls: List[str] = []
     model_asset_id: Optional[str] = None
     preset_ids: Optional[List[str]] = None    # default: all presets with in_pack
+    skip_if_done: bool = False                # skip try-on presets when the product already has an approved on-model image
+
+
+def _product_summary(n: dict) -> dict:
+    attrs = {a["attribute"]["slug"]: ", ".join(v["name"] for v in a["values"] if v.get("name")) for a in (n.get("attributes") or []) if a.get("values")}
+    return {"id": n["id"], "name": n["name"], "category": (n.get("category") or {}).get("name"), "product_type": (n.get("productType") or {}).get("name"),
+            "attributes": attrs, "tryon_category": _tryon_category(n), "description_hint": _describe(n, attrs),
+            "media": [m for m in n["media"] if m["type"] == "IMAGE"]}
+
+
+async def _run_pack(shop: Installation, product: dict, image_urls: List[str], model_asset_id: Optional[str], preset_ids, skip_if_done: bool, batch: str) -> dict:
+    st = db.get_settings(shop.domain)
+    presets = st.get("presets") or DEFAULT_PRESETS
+    chosen = [p for p in presets if (preset_ids and p["id"] in preset_ids) or (not preset_ids and p.get("in_pack"))]
+    keys = st.get("keys", {})
+    defaults = st.get("studio", {}).get("default_models", {})
+    model_id = model_asset_id or defaults.get(product.get("product_type") or "") or defaults.get("*")
+    has_tryon = skip_if_done and any(a["meta"].get("mode") == "tryon" and a["meta"].get("status") == "approved"
+                                     for a in db.list_assets(shop.domain, kind="generated", product_id=product["id"], limit=200))
+    started, skipped, cost = [], [], 0.0
+    for p in chosen:
+        if not keys.get(p["provider"]):
+            skipped.append({"preset": p["name"], "reason": f"no {p['provider']} key"}); continue
+        if p["mode"] == "tryon" and not model_id:
+            skipped.append({"preset": p["name"], "reason": "no model photo (select one or set a default per product type)"}); continue
+        if p["mode"] == "tryon" and has_tryon:
+            skipped.append({"preset": p["name"], "reason": "already has an approved on-model image"}); continue
+        if not find_model(p["provider"], p["model"]):
+            skipped.append({"preset": p["name"], "reason": "unknown model"}); continue
+        n = max(1, min(int(p.get("options", {}).get("n", 1)), 4))
+        cost += estimate(p["provider"], p["model"], p["mode"], n)["cost_eur"]
+        options = {**p.get("options", {}), "n": n}
+        if p["mode"] == "tryon" and options.get("category", "auto") == "auto" and p["provider"] == "fal":
+            options["category"] = product.get("tryon_category", "auto")
+        job = db.create_job(shop.domain, p["mode"], p["provider"], p["model"], product["id"], {
+            "prompt": _fill_prompt(p.get("prompt", ""), product), "product_image_urls": image_urls, "source_asset_ids": [],
+            "model_asset_id": model_id if p["mode"] == "tryon" else None, "options": options, "preset": p["name"], "batch": batch})
+        started.append(job["id"])
+    _budget_check(shop.domain, cost)
+    for jid in started:
+        start_job(shop, jid)
+    return {"product_id": product["id"], "started": started, "skipped": skipped, "estimated_cost_eur": round(cost, 2)}
 
 
 @router.post("/pack")
 async def pack(body: PackBody, shop: Installation = Depends(current_shop)):
-    presets = db.get_settings(shop.domain).get("presets") or DEFAULT_PRESETS
-    chosen = [p for p in presets if (body.preset_ids and p["id"] in body.preset_ids) or (not body.preset_ids and p.get("in_pack"))]
-    keys = db.get_settings(shop.domain).get("keys", {})
-    started, skipped = [], []
-    for p in chosen:
-        if not keys.get(p["provider"]):
-            skipped.append({"preset": p["name"], "reason": f"no {p['provider']} key"}); continue
-        if p["mode"] == "tryon" and not body.model_asset_id:
-            skipped.append({"preset": p["name"], "reason": "no model photo selected"}); continue
-        if not find_model(p["provider"], p["model"]):
-            skipped.append({"preset": p["name"], "reason": "unknown model"}); continue
-        job = db.create_job(shop.domain, p["mode"], p["provider"], p["model"], body.product_id, {
-            "prompt": p.get("prompt", ""), "product_image_urls": body.product_image_urls, "source_asset_ids": [],
-            "model_asset_id": body.model_asset_id if p["mode"] == "tryon" else None,
-            "options": {**p.get("options", {}), "n": max(1, min(int(p.get("options", {}).get("n", 1)), 4))}, "preset": p["name"]})
-        start_job(shop, job["id"])
-        started.append(job["id"])
-    return {"started": started, "skipped": skipped}
+    async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+        prod = await api.execute(PRODUCT_SUMMARY, {"id": body.product_id})
+    node = (prod or {}).get("product")
+    if not node:
+        raise HTTPException(status_code=404, detail="product not found")
+    product = _product_summary(node)
+    urls = body.product_image_urls or [m["url"] for m in product["media"][:1]]
+    return await _run_pack(shop, product, urls, body.model_asset_id, body.preset_ids, body.skip_if_done, uuid.uuid4().hex)
+
+
+class BulkPackBody(BaseModel):
+    product_ids: List[str]
+    model_asset_id: Optional[str] = None
+    preset_ids: Optional[List[str]] = None
+    skip_if_done: bool = True
+
+
+@router.post("/pack-bulk")
+async def pack_bulk(body: BulkPackBody, shop: Installation = Depends(current_shop)):
+    batch = uuid.uuid4().hex
+    results = []
+    async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+        for pid in body.product_ids[:50]:
+            node = ((await api.execute(PRODUCT_SUMMARY, {"id": pid})) or {}).get("product")
+            if not node:
+                results.append({"product_id": pid, "started": [], "skipped": [{"preset": "*", "reason": "product not found"}]}); continue
+            product = _product_summary(node)
+            if not product["media"]:
+                results.append({"product_id": pid, "started": [], "skipped": [{"preset": "*", "reason": "no product image"}]}); continue
+            try:
+                results.append(await _run_pack(shop, product, [product["media"][0]["url"]], body.model_asset_id, body.preset_ids, body.skip_if_done, batch))
+            except HTTPException as exc:
+                results.append({"product_id": pid, "started": [], "skipped": [{"preset": "*", "reason": str(exc.detail)}]})
+                break
+    return {"batch": batch, "results": results, "started": sum(len(r["started"]) for r in results)}
+
+
+PRODUCT_SUMMARY = """
+query StudioProductSummary($id: ID!) {
+  product(id: $id) { id name category { name } productType { name } attributes { attribute { name slug } values { name } }
+    media { id alt type url thumb: url(size: 512) } }
+}
+"""
 
 
 # -- generation --------------------------------------------------------------
@@ -266,6 +423,7 @@ async def generate(body: GenerateBody, shop: Installation = Depends(current_shop
     if body.mode == "tryon" and not body.model_asset_id:
         raise HTTPException(status_code=400, detail="select a model photo")
     n = max(1, min(int(body.options.get("n", 1)), 4))
+    _budget_check(shop.domain, estimate(body.provider, body.model, body.mode, n)["cost_eur"])
     job = db.create_job(shop.domain, body.mode, body.provider, body.model, body.product_id, {
         "prompt": body.prompt, "product_image_urls": body.product_image_urls, "source_asset_ids": body.source_asset_ids,
         "model_asset_id": body.model_asset_id, "options": {**body.options, "n": n},
@@ -533,3 +691,24 @@ async def put_storefront(body: StorefrontSettings, shop: Installation = Depends(
         sf["revalidate_secret"] = "" if body.revalidate_secret == "-" else body.revalidate_secret
     db.save_settings(shop.domain, st)
     return {"revalidate_url": sf["revalidate_url"], "has_secret": bool(sf.get("revalidate_secret"))}
+
+
+async def auto_pack_for_product(installation: Installation, product_id: str, media_url: Optional[str]):
+    """Webhook-triggered: first image uploaded to a product -> run the default pack into the review queue."""
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        if db.list_jobs(installation.domain, product_id=product_id, limit=1):
+            return   # already generated for this product once; staff can run more manually
+        async with SaleorAPI(installation.saleor_api_url, installation.auth_token) as api:
+            node = ((await api.execute(PRODUCT_SUMMARY, {"id": product_id})) or {}).get("product")
+        if not node:
+            return
+        product = _product_summary(node)
+        urls = [media_url] if media_url else [m["url"] for m in product["media"][:1]]
+        if not urls:
+            return
+        result = await _run_pack(installation, product, urls, None, None, True, uuid.uuid4().hex)
+        log.info("auto pack for %s: %s", product_id, result)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("auto pack for %s failed: %s", product_id, exc)

@@ -1,5 +1,6 @@
 """Product Builder: photos -> AI draft -> variants/SKUs/prices/stock -> product in Saleor."""
 import itertools
+import logging
 import os
 import re
 import uuid
@@ -89,15 +90,47 @@ async def put_settings(body: BuilderSettings, shop: Installation = Depends(curre
     return {"ok": True}
 
 
+async def clean_background(data: bytes, api_key: str) -> bytes:
+    """Stability remove-background, then composite on white and pad to a square (try-on friendly)."""
+    import aiohttp
+    from io import BytesIO
+    from PIL import Image
+    form = aiohttp.FormData()
+    form.add_field("image", data, filename="in.png", content_type="image/png")
+    form.add_field("output_format", "png")
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as s:
+        async with s.post("https://api.stability.ai/v2beta/stable-image/edit/remove-background", data=form,
+                          headers={"Authorization": f"Bearer {api_key}", "Accept": "image/*"}) as resp:
+            if resp.status != 200:
+                raise ProviderError(f"remove-background HTTP {resp.status}")
+            cut = await resp.read()
+    with Image.open(BytesIO(cut)).convert("RGBA") as img:
+        bbox = img.getbbox()
+        if bbox:
+            img = img.crop(bbox)
+        side = int(max(img.size) * 1.12)
+        canvas = Image.new("RGB", (side, side), (255, 255, 255))
+        canvas.paste(img, ((side - img.width) // 2, (side - img.height) // 2), img)
+        out = BytesIO(); canvas.save(out, "PNG"); return out.getvalue()
+
+
 @router.post("/upload")
-async def upload(file: UploadFile = File(...), shop: Installation = Depends(current_shop)):
+async def upload(file: UploadFile = File(...), clean: Optional[str] = Form(None), shop: Installation = Depends(current_shop)):
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=400, detail="only images are accepted")
-    data = await file.read()
+    data = normalize_image(await file.read(), 2500).data
+    st = db.get_settings(shop.domain)
+    do_clean = (clean == "1") if clean is not None else bool(st.get("studio", {}).get("clean_uploads"))
+    cleaned = False
+    if do_clean and st.get("keys", {}).get("stability"):
+        try:
+            data = await clean_background(data, provider_key(shop.domain, "stability")); cleaned = True
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).warning("upload cleaning failed: %s", exc)
     path = os.path.join(asset_dir("uploads"), f"{uuid.uuid4().hex}.png")
     with open(path, "wb") as f:
-        f.write(normalize_image(data, 2500).data)
-    return _asset_out(db.add_asset(shop.domain, "upload", "image/png", path, label=file.filename, meta={"status": "approved"}))
+        f.write(data)
+    return _asset_out(db.add_asset(shop.domain, "upload", "image/png", path, label=file.filename, meta={"status": "approved", "cleaned": cleaned}))
 
 
 # -- AI draft ---------------------------------------------------------------------

@@ -233,3 +233,29 @@ button, input, select { font: inherit; color: inherit; }
 .picker-body { max-height: 70vh; overflow: auto; }
 .picker .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 .tile .src { position: absolute; bottom: 34px; left: 0; right: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- AI Studio 0.9 layout ---- */
+.studio .topbar { align-items: center; }
+.top-tabs .tab { font-size: 14px; }
+.top-tabs .badge { margin-left: 6px; }
+.view { display: grid; gap: 24px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn svg { vertical-align: -2px; margin-right: 4px; }
+.row4 { display: grid; grid-template-columns: 1.2fr 1fr 1.4fr auto; gap: 12px; }
+.check.small { font-size: 12px; color: var(--text-muted); }
+.product-list li { align-items: center; }
+.product-list li .bulk { margin: 0 4px 0 0; flex: none; }
+.product-list li .row-click { display: flex; gap: 10px; align-items: center; min-width: 0; flex: 1; }
+.bulk-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; background: var(--hover); border-bottom: 1px solid var(--border); font-size: 13px; }
+.settings-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.dm-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.dm-row img, .dm-row .thumb-empty { width: 40px; height: 52px; object-fit: cover; border-radius: 4px; background: var(--hover); }
+.compare { width: min(1100px, 94vw); }
+.compare-body { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 12px 16px; }
+.compare-body figure { margin: 0; text-align: center; }
+.compare-body img { max-height: 70vh; max-width: 100%; object-fit: contain; background: repeating-conic-gradient(var(--hover) 0 25%, var(--surface) 0 50%) 0 0 / 16px 16px; }
+.compare-body figcaption { color: var(--text-muted); font-size: 13px; margin-top: 8px; }
+.compare-actions { display: flex; justify-content: center; gap: 10px; padding: 8px 16px 16px; }
+.compare .nav { font-size: 18px; padding: 10px 14px; }
+kbd { border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px; font-size: 12px; background: var(--hover); }
+@media (max-width: 1000px) { .row4, .settings-grid2 { grid-template-columns: 1fr; } .top-tabs { flex-wrap: wrap; } }

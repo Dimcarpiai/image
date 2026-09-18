@@ -63,4 +63,4 @@ def test_webhook_ignores_own_uploads_and_disabled_auto():
     sig = hmac.new(b"s3cret", body, hashlib.sha256).hexdigest()
     headers["x-saleor-signature"] = sig
     r = client.post("/webhook", content=body, headers=headers)
-    assert r.json()["reason"] == "auto-optimize disabled"
+    assert r.json()["reason"] == "automation disabled"

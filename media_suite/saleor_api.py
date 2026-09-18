@@ -103,7 +103,9 @@ query StudioProducts($first: Int!, $after: String, $search: String) {
   products(first: $first, after: $after, filter: { search: $search }, sortBy: { field: NAME, direction: ASC }) {
     totalCount
     pageInfo { hasNextPage endCursor }
-    edges { node { id name thumbnail(size: 256) { url } category { name } media { id alt type url thumb: url(size: 512) } } }
+    edges { node { id name thumbnail(size: 256) { url } category { name } productType { name }
+      attributes { attribute { name slug } values { name } }
+      media { id alt type url thumb: url(size: 512) } } }
   }
 }
 """

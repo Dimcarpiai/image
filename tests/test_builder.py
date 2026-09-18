@@ -83,8 +83,14 @@ class FakeSaleor:
                 self.updated_stocks = v; return {"data": {"productVariantStocksUpdate": {"errors": []}}}
             if "query CloneSource" in q:
                 return {"data": {"product": getattr(self, "clone_source", None)}}
+            if "productMediaReorder" in q:
+                self.reordered = v; return {"data": {"productMediaReorder": {"errors": []}}}
+            if "query StudioProductSummary" in q:
+                return {"data": {"product": {"id": v["id"], "name": "Polo", "category": {"name": "Shirts"}, "productType": {"name": "Shirt"},
+                                             "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}],
+                                             "media": [{"id": "M1", "alt": "front", "type": "IMAGE", "url": self.base + "/media/front.png", "thumb": self.base + "/media/front.png"}]}}}
             if "query ProductMedia" in q:
-                return {"data": {"product": {"id": "P1", "name": "Polo", "media": [{"id": "M1", "alt": "front", "type": "IMAGE", "url": self.base + "/media/front.jpg"}]}}}
+                return {"data": {"product": {"id": "P1", "name": "Polo", "media": [{"id": "M1", "alt": "front", "type": "IMAGE", "url": self.base + "/media/front.jpg"}] + [{"id": m["id"], "alt": "", "type": "IMAGE", "url": self.base + "/media/x.png"} for m in self.media]}}}
             return {"errors": [{"message": "unhandled " + q[:40]}]}
 
     def start(self):
@@ -272,3 +278,40 @@ def test_product_editor_roundtrip(saleor):
         assert saleor.updated_variant["input"] == {"sku": "ROS-POLO-NAV-S2"}
         assert saleor.updated_prices["input"] == [{"channelId": "CH1", "price": 59.0}] and saleor.updated_stocks["stocks"] == [{"warehouse": "WH1", "quantity": 12}]
         assert saleor.revalidations[-1]["body"]["reason"] == "product-updated"
+
+
+def test_settings_budget_estimate_and_bulk(saleor, monkeypatch):
+    import asyncio
+    from media_suite.providers import PROVIDERS, Output
+    class FakeGen:
+        def __init__(self, real): self.spec = real.spec
+        async def generate(self, model, req, api_key):
+            await asyncio.sleep(0.02); return [Output(png((3, 3, 3), (200, 300)), "image/png")]
+    for pid in ("openai", "stability"):
+        monkeypatch.setitem(PROVIDERS, pid, FakeGen(PROVIDERS[pid]))
+    with TestClient(app) as c:
+        for pid in ("openai", "stability"):
+            c.put("/api/studio/keys", headers=H(saleor), json={"provider": pid, "api_key": "k"})
+        s = c.put("/api/studio/settings", headers=H(saleor), json={"daily_budget_eur": 0.10, "review_threshold": 0, "default_models": {"*": "none"}}).json()
+        assert s["daily_budget_eur"] == 0.10
+        e = c.post("/api/studio/estimate", headers=H(saleor), json={"provider": "openai", "model": "gpt-image-2", "mode": "scene", "n": 2}).json()
+        assert e["cost_eur"] == 0.12 and e["daily_budget_eur"] == 0.10
+        # a single generation over the cap is refused with 402
+        r = c.post("/api/studio/generate", headers=H(saleor), json={"mode": "scene", "provider": "openai", "model": "gpt-image-2", "product_id": "P1", "prompt": "x", "product_image_urls": [saleor.base + "/media/a.png"], "options": {"n": 2}})
+        assert r.status_code == 402
+        c.put("/api/studio/settings", headers=H(saleor), json={"daily_budget_eur": 0})
+        # bulk pack: placeholders filled from product attributes, category auto-detected
+        r = c.post("/api/studio/pack-bulk", headers=H(saleor), json={"product_ids": ["P1", "P2"], "preset_ids": ["studio", "lifestyle"]}).json()
+        assert r["started"] == 4 and len(r["results"]) == 2
+        jobs = c.get("/api/studio/jobs?product_id=P1", headers=H(saleor)).json()
+        assert any(j["input"].get("batch") == r["batch"] for j in jobs)
+        for _ in range(80):
+            jobs = c.get("/api/studio/jobs?product_id=P1", headers=H(saleor)).json()
+            if all(j["status"] in ("done", "error") for j in jobs[:2]): break
+            time.sleep(0.1)
+        assert all(j["status"] == "done" for j in jobs[:2]), jobs[:2]
+        assert c.get("/api/studio/settings", headers=H(saleor)).json()["spent_today_eur"] > 0
+        # approve as main reorders media
+        queue = c.get("/api/studio/review", headers=H(saleor)).json()
+        r = c.post("/api/studio/review", headers=H(saleor), json={"asset_id": queue[0]["id"], "decision": "approve_main"}).json()
+        assert r["status"] == "approved" and r["main"] is True

@@ -34,6 +34,19 @@ Optional fifth provider **Local GPU (CatVTON)**: point it at your own try-on ser
 - **Edit details** (AI Studio, 0.7.0) — edit the selected product in place: name, slug, category, description, SEO,
   product attributes, German translation, and per-variant SKU / price per channel / stock per warehouse. Product images
   can be removed with the ✕ on each tile.
+- **0.9.0 — throughput features & new layout.** AI Studio is now four tabs: *Studio* (products with bulk selection,
+  references, generation, results), *Review* (queue with Approve / Main / Other product / Reject and a keyboard
+  *Compare view*: ← → A M R), *Library*, *Settings*. Plus:
+  - *Generate pack for selected* — tick products in the list and run the ★ presets for all of them (products with an
+    approved on-model image skip the try-on step);
+  - *Auto-run on new uploads* — when a product gets its first image, the default pack runs into the review queue;
+  - *Smart defaults* — prompt pre-filled from product attributes, try-on category from product type; presets accept
+    `{product} {color} {material} {category}` placeholders;
+  - *Default model photo per product type* (fallback `*`);
+  - *Cost & time estimate* before generating, *daily budget* cap (HTTP 402 when exceeded), spend tracking;
+  - *Clean uploads* — background removal + white square via Stability (optional);
+  - *Job queue*: 4 parallel workers, automatic retry on transient provider errors;
+  - *Notifications* — Slack/Teams-style webhook on pack completion and when the review queue reaches a threshold.
 - **Storefront revalidation** — Builder settings → *Storefront revalidate URL* (+ secret). The app POSTs
   `{"productId", "slug", "reason", "secret"}` with `Authorization: Bearer <secret>` after a product is created,
   an image is approved/attached, or the optimizer changed media, so cached storefront pages refresh.
