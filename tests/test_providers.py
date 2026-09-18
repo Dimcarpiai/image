@@ -57,4 +57,56 @@ def test_stability_forms():
     assert Image.open(BytesIO(_fit(png, 1024, 576))).size == (1024, 576)
     with pytest.raises(ProviderError):
         sp._form("relight", GenerateRequest("scene", "x", [], None))
-    assert [p["id"] for p in catalog({})["providers"]] == ["openai", "gemini", "stability", "fal"]
+    assert [p["id"] for p in catalog({})["providers"]] == ["openai", "gemini", "stability", "fal", "local"]
+
+
+def test_stability_tryon_search_replace():
+    from media_suite.providers.stability_provider import StabilityProvider
+    sp = StabilityProvider()
+    person = ImageInput(PNG)
+    path, form = sp._form("search-replace", GenerateRequest("tryon", "burgundy rugby shirt", [], person, {"garment": "polo shirt"}))
+    fields = {f[0]["name"]: f[2] for f in form._fields}
+    assert path.endswith("/search-and-replace") and fields["search_prompt"] == "polo shirt" and "burgundy rugby shirt" in fields["prompt"]
+    assert "tryon" in find_model("stability", "search-replace").modes
+    with pytest.raises(ProviderError):
+        sp._form("search-replace", GenerateRequest("tryon", "x", [], None))
+
+
+def test_local_provider_key_parsing_and_catalog():
+    from media_suite.providers.local_provider import parse_key
+    assert parse_key("https://abc.trycloudflare.com/|tok") == ("https://abc.trycloudflare.com", "tok")
+    assert parse_key("http://192.168.1.5:8000") == ("http://192.168.1.5:8000", "")
+    with pytest.raises(ProviderError):
+        parse_key("abc.trycloudflare.com|tok")
+    assert [p["id"] for p in catalog({})["providers"]] == ["openai", "gemini", "stability", "fal", "local"]
+    assert find_model("local", "catvton").modes == ["tryon"]
+
+
+async def _fake_server_roundtrip():
+    """The provider posts multipart to /tryon and returns the PNG bytes it gets back."""
+    import socket, threading, time
+    import uvicorn
+    from fastapi import FastAPI, File, Form, Header, UploadFile
+    from fastapi.responses import Response
+    from media_suite.providers.local_provider import LocalProvider
+    fake = FastAPI(); seen = {}
+
+    @fake.post("/tryon")
+    async def tryon(person: UploadFile = File(...), garment: UploadFile = File(...), cloth_type: str = Form("upper"), x_token: str = Header(default="")):
+        seen.update(token=x_token, cloth=cloth_type, person=len(await person.read()), garment=len(await garment.read()))
+        return Response(b"\x89PNGfake", media_type="image/png")
+
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    server = uvicorn.Server(uvicorn.Config(fake, host="127.0.0.1", port=port, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started: time.sleep(0.05)
+    out = await LocalProvider().generate("catvton", GenerateRequest("tryon", "", [ImageInput(PNG)], ImageInput(PNG), {"cloth_type": "lower"}), f"http://127.0.0.1:{port}|secret")
+    server.should_exit = True
+    return out, seen
+
+
+def test_local_provider_roundtrip():
+    import asyncio
+    out, seen = asyncio.run(_fake_server_roundtrip())
+    assert out[0].data == b"\x89PNGfake" and out[0].mime == "image/png"
+    assert seen == {"token": "secret", "cloth": "lower", "person": len(PNG), "garment": len(PNG)}

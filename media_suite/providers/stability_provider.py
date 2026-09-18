@@ -26,6 +26,8 @@ class StabilityProvider(Provider):
                       options={"strength": ["0.35", "0.5", "0.65", "0.8"]}),
             ModelSpec("sd3.5-large", "Stable Diffusion 3.5 Large (image-to-image)", ["scene"],
                       options={"strength": ["0.35", "0.5", "0.65", "0.8"]}),
+            ModelSpec("search-replace", "Search & replace garment on model (garment from prompt, not photo)", ["tryon"],
+                      options={"garment": ["shirt", "t-shirt", "polo shirt", "blouse", "jacket", "dress", "trousers", "skirt"]}),
             ModelSpec("svd", "Stable Video Diffusion (image-to-video)", ["video"],
                       options={"motion_bucket_id": ["40", "127", "180"], "size": ["768x768", "1024x576", "576x1024"]}),
         ],
@@ -33,11 +35,20 @@ class StabilityProvider(Provider):
 
     def _form(self, model: str, req: GenerateRequest) -> tuple:
         """Returns (path, FormData). Kept separate from the network call so it can be tested."""
+        o = req.options
+        form = aiohttp.FormData()
+        if model == "search-replace":
+            if not req.model_image:
+                raise ProviderError("a model photo is required for try-on")
+            garment = o.get("garment", "shirt")
+            form.add_field("image", req.model_image.data, filename="model.png", content_type=req.model_image.mime)
+            form.add_field("search_prompt", garment)
+            form.add_field("prompt", (req.prompt or f"a {garment}") + ", photorealistic, e-commerce photo, natural fit")
+            form.add_field("output_format", "png")
+            return "/stable-image/edit/search-and-replace", form
         if not req.product_images:
             raise ProviderError("select a product image")
         src = req.product_images[0]
-        o = req.options
-        form = aiohttp.FormData()
         if model == "relight":
             form.add_field("subject_image", src.data, filename="subject.png", content_type=src.mime)
             form.add_field("background_prompt", req.prompt or "clean studio background, soft light")

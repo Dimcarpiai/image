@@ -157,7 +157,7 @@ async def generate(body: GenerateBody, shop: Installation = Depends(current_shop
         raise HTTPException(status_code=400, detail=f"{spec.label} does not support mode '{body.mode}'")
     if not db.get_settings(shop.domain).get("keys", {}).get(body.provider):
         raise HTTPException(status_code=400, detail=f"no API key saved for {body.provider}")
-    if not body.product_image_urls and not body.source_asset_ids:
+    if not body.product_image_urls and not body.source_asset_ids and body.model != "search-replace":
         raise HTTPException(status_code=400, detail="select at least one product image")
     if body.mode == "tryon" and not body.model_asset_id:
         raise HTTPException(status_code=400, detail="select a model photo")

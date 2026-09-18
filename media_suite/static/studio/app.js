@@ -133,7 +133,7 @@
     }
     $("#mode-help").textContent = state.catalog.modes.find((m) => m.id === state.mode)?.help || "";
     $("#model-photo-block").hidden = state.mode !== "tryon";
-    $("#prompt").placeholder = { scene: "e.g. on a wooden table in a bright kitchen, soft morning light", tryon: "optional styling, e.g. tucked in, sleeves rolled, walking in a city street",
+    $("#prompt").placeholder = { scene: "e.g. on a wooden table in a bright kitchen, soft morning light", tryon: "optional styling, e.g. tucked in, sleeves rolled — for Stability describe the garment: 'burgundy rugby shirt with white stripes'",
       video: "e.g. slow 360° turn on a rotating stand, soft studio light" }[state.mode];
     renderProviderSelect();
   }
@@ -158,7 +158,7 @@
       const s = el("select", { "data-opt": name }); for (const v of values) s.append(el("option", { value: v }, v));
       box.append(el("label", {}, name.replace("_", " "), s));
     }
-    $("#cost-hint").textContent = { openai: "Billed by OpenAI per image.", gemini: "Billed by Google per image.", fal: "Billed by fal.ai per image / per second of video.", stability: "Billed by Stability AI in credits per image / video." }[p?.id] || "";
+    $("#cost-hint").textContent = { openai: "Billed by OpenAI per image.", gemini: "Billed by Google per image.", fal: "Billed by fal.ai per image / per second of video.", stability: "Billed by Stability AI in credits per image / video.", local: "Runs on your own GPU; no per-image cost. The PC and tunnel must be running." }[p?.id] || "";
   }
   $("#provider").addEventListener("change", renderModelSelect);
   $("#model").addEventListener("change", renderModelOptions);

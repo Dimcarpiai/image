@@ -12,6 +12,9 @@ One Saleor app, one domain, one installation — two dashboard tools under **Cat
 Built on [mirumee/saleor-app-framework-python](https://github.com/mirumee/saleor-app-framework-python) with
 the compatibility fixes for current Starlette/Saleor 3.21 applied.
 
+Optional fifth provider **Local GPU (CatVTON)**: point it at your own try-on server (see the separate
+`catvton-server` package) via `https://<tunnel-url>|<token>` in the API keys panel. CatVTON is CC BY-NC-SA (non-commercial).
+
 ## Layout
 
 | Path | Purpose |
