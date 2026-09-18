@@ -31,6 +31,9 @@ Optional fifth provider **Local GPU (CatVTON)**: point it at your own try-on ser
 - **Import from a page or URL** (AI Studio, 0.6.0) — paste a Pinterest pin, supplier page or direct image URL; the app lists
   the images it finds, you tick the ones to import as references, or click *Clone product with this* on one to create a
   colourway from that picture. Imported images are stored in the app (visible in Product Builder too).
+- **Edit details** (AI Studio, 0.7.0) — edit the selected product in place: name, slug, category, description, SEO,
+  product attributes, German translation, and per-variant SKU / price per channel / stock per warehouse. Product images
+  can be removed with the ✕ on each tile.
 - **Storefront revalidation** — Builder settings → *Storefront revalidate URL* (+ secret). The app POSTs
   `{"productId", "slug", "reason", "secret"}` with `Authorization: Bearer <secret>` after a product is created,
   an image is approved/attached, or the optimizer changed media, so cached storefront pages refresh.

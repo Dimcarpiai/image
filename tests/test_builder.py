@@ -71,6 +71,16 @@ class FakeSaleor:
                 self.assigned = v; return {"data": {"variantMediaAssign": {"errors": []}}}
             if "productTranslate" in q:
                 self.translation = v; return {"data": {"productTranslate": {"errors": []}}}
+            if "query EditSource" in q:
+                return {"data": {"product": getattr(self, "edit_source", None)}}
+            if "productUpdate" in q:
+                self.updated_product = v; return {"data": {"productUpdate": {"product": {"id": v["id"], "name": v["input"]["name"], "slug": v["input"].get("slug", "")}, "errors": []}}}
+            if "productVariantUpdate" in q:
+                self.updated_variant = v; return {"data": {"productVariantUpdate": {"errors": []}}}
+            if "productVariantChannelListingUpdate" in q:
+                self.updated_prices = v; return {"data": {"productVariantChannelListingUpdate": {"errors": []}}}
+            if "productVariantStocksUpdate" in q:
+                self.updated_stocks = v; return {"data": {"productVariantStocksUpdate": {"errors": []}}}
             if "query CloneSource" in q:
                 return {"data": {"product": getattr(self, "clone_source", None)}}
             if "query ProductMedia" in q:
@@ -240,3 +250,25 @@ def test_clone_product_colourway(saleor):
         r = c.post("/api/studio/clone", headers=H(saleor), json={"source_product_id": "P1", "name": "Polo Olive", "color": "Olive", "copy_source_images": True})
         assert r.status_code == 200, r.text
         assert "copied from the source product" in " ".join(r.json()["steps"]) or len(saleor.media) >= n_media
+
+
+def test_product_editor_roundtrip(saleor):
+    saleor.edit_source = {"id": "P1", "name": "Polo Navy", "slug": "polo-navy", "description": '{"blocks":[{"type":"paragraph","data":{"text":"Soft <b>cotton</b>."}}]}',
+        "seoTitle": "Polo", "seoDescription": "d", "productType": {"id": "PT1"}, "category": {"id": "CAT1"},
+        "attributes": [{"attribute": {"id": "A_MAT", "name": "Material", "inputType": "DROPDOWN"}, "values": [{"name": "Cotton"}]}],
+        "translation": {"name": "Poloshirt Navy", "description": None, "seoTitle": "", "seoDescription": ""},
+        "variants": [{"id": "V0", "sku": "ROS-POLO-NAV-S", "name": "S", "attributes": [{"attribute": {"name": "Size"}, "values": [{"name": "S"}]}],
+                      "channelListings": [{"channel": {"id": "CH1"}, "price": {"amount": 49.0, "currency": "EUR"}}], "stocks": [{"warehouse": {"id": "WH1"}, "quantity": 0}]}]}
+    with TestClient(app) as c:
+        d = c.get("/api/studio/product-details/P1", headers=H(saleor)).json()
+        assert d["description"] == ["Soft cotton."] and d["attributes"][0]["value"] == "Cotton" and d["variants"][0]["label"] == "S"
+        assert d["translation_de"]["name"] == "Poloshirt Navy"
+        body = {"name": "Polo Navy Slim", "slug": "polo-navy-slim", "category_id": "CAT1", "description": ["New text."], "seo_title": "T", "seo_description": "D",
+                "attributes": {"A_MAT": "Linen"}, "translation_de": {"name": "Poloshirt Navy Slim", "description": ["Neuer Text."], "seo_title": "", "seo_description": ""},
+                "variants": [{"id": "V0", "sku": "ROS-POLO-NAV-S2", "prices": {"CH1": 59.0}, "stocks": {"WH1": 12}}]}
+        r = c.put("/api/studio/product-details/P1", headers=H(saleor), json=body)
+        assert r.status_code == 200, r.text
+        assert saleor.updated_product["input"]["name"] == "Polo Navy Slim" and saleor.updated_product["input"]["attributes"] == [{"id": "A_MAT", "dropdown": {"value": "Linen"}}]
+        assert saleor.updated_variant["input"] == {"sku": "ROS-POLO-NAV-S2"}
+        assert saleor.updated_prices["input"] == [{"channelId": "CH1", "price": 59.0}] and saleor.updated_stocks["stocks"] == [{"warehouse": "WH1", "quantity": 12}]
+        assert saleor.revalidations[-1]["body"]["reason"] == "product-updated"

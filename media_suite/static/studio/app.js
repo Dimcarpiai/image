@@ -371,6 +371,48 @@
   const _renderModeTabs = renderModeTabs;
   renderModeTabs = function () { _renderModeTabs(); renderPresets(); };
 
+  // ---- product editor -------------------------------------------------------
+  $("#edit-product").addEventListener("click", async () => {
+    if (!state.product) return;
+    const dlg = $("#edit-dialog"); $("#ed-msg").textContent = "Loading…"; dlg.showModal();
+    try {
+      const d = await api(`/api/studio/product-details/${encodeURIComponent(state.product.id)}`);
+      $("#edit-title").textContent = `Edit: ${d.name}`;
+      $("#ed-name").value = d.name; $("#ed-slug").value = d.slug || ""; $("#ed-desc").value = d.description.join("\n\n");
+      $("#ed-seo-title").value = d.seo_title; $("#ed-seo-desc").value = d.seo_description;
+      const cat = $("#ed-category"); cat.replaceChildren(el("option", { value: "" }, "— none —")); for (const c of d.categories) cat.append(el("option", { value: c.id }, c.path)); cat.value = d.category_id || "";
+      const attrs = $("#ed-attrs"); attrs.replaceChildren();
+      for (const a of d.attributes) attrs.append(el("label", {}, a.name, el("input", { "data-attr": a.id, value: a.value, list: a.values.length ? `edl-${a.id}` : null }), a.values.length ? el("datalist", { id: `edl-${a.id}` }, ...a.values.map((v) => el("option", { value: v }))) : null));
+      $("#ed-name-de").value = d.translation_de.name; $("#ed-desc-de").value = d.translation_de.description.join("\n\n"); $("#ed-seo-title-de").value = d.translation_de.seo_title; $("#ed-seo-desc-de").value = d.translation_de.seo_description;
+      const t = $("#ed-variants"); t.replaceChildren();
+      t.append(el("thead", {}, el("tr", {}, el("th", {}, "Variant"), el("th", {}, "SKU"), ...d.channels.map((c) => el("th", {}, `Price ${c.currencyCode}`)), ...d.warehouses.map((w) => el("th", {}, `Stock ${w.name}`)))));
+      const tb = el("tbody");
+      for (const v of d.variants) tb.append(el("tr", { "data-id": v.id },
+        el("td", {}, v.label), el("td", {}, el("input", { "data-sku": "", value: v.sku })),
+        ...d.channels.map((c) => el("td", {}, el("input", { class: "num", type: "number", step: "0.01", "data-ch": c.id, value: v.prices[c.id] ?? "" }))),
+        ...d.warehouses.map((w) => el("td", {}, el("input", { class: "num", type: "number", "data-wh": w.id, value: v.stocks[w.id] ?? 0 })))));
+      t.append(tb); $("#ed-msg").textContent = "";
+      $("#ed-save").onclick = async () => {
+        const btn = $("#ed-save"); btn.disabled = true; $("#ed-msg").textContent = "Saving…";
+        const body = {
+          name: $("#ed-name").value.trim(), slug: $("#ed-slug").value.trim() || null, category_id: $("#ed-category").value || null,
+          description: $("#ed-desc").value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean),
+          seo_title: $("#ed-seo-title").value.trim(), seo_description: $("#ed-seo-desc").value.trim(),
+          attributes: Object.fromEntries([...attrs.querySelectorAll("input[data-attr]")].map((i) => [i.dataset.attr, i.value.trim()])),
+          translation_de: $("#ed-name-de").value.trim() ? { name: $("#ed-name-de").value.trim(), description: $("#ed-desc-de").value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean), seo_title: $("#ed-seo-title-de").value.trim(), seo_description: $("#ed-seo-desc-de").value.trim() } : null,
+          variants: [...tb.querySelectorAll("tr")].map((tr) => ({ id: tr.dataset.id, sku: tr.querySelector("input[data-sku]").value,
+            prices: Object.fromEntries([...tr.querySelectorAll("input[data-ch]")].filter((i) => i.value !== "").map((i) => [i.dataset.ch, Number(i.value)])),
+            stocks: Object.fromEntries([...tr.querySelectorAll("input[data-wh]")].map((i) => [i.dataset.wh, Number(i.value || 0)])) })),
+        };
+        try {
+          const r = await api(`/api/studio/product-details/${encodeURIComponent(state.product.id)}`, { method: "PUT", body: JSON.stringify(body) });
+          state.product.name = r.product.name; $("#product-title").textContent = r.product.name; renderProductList();
+          dlg.close(); notify("success", "AI Studio", r.steps.join(", "));
+        } catch (e) { $("#ed-msg").textContent = e.message; } finally { btn.disabled = false; }
+      };
+    } catch (e) { $("#ed-msg").textContent = e.message; }
+  });
+
   $("#clone-product").addEventListener("click", () => {
     const ticked = state.jobs.flatMap((j) => j.assets).filter((a) => state.selectedAssets.has(a.id) && a.mime.startsWith("image/"));
     openClone(ticked, true);

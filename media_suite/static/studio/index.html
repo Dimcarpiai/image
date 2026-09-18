@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.6.1">
+  <link rel="stylesheet" href="/static/app.css?v=0.7.0">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -35,8 +35,10 @@
         <div id="workspace" hidden>
           <section class="panel">
             <div class="panel-head"><div><h2 id="product-title">Product</h2><span class="muted" id="product-sub"></span></div>
+              <div style="display:flex; gap:8px"><button class="btn btn-sm" id="edit-product" title="Edit name, description, SEO, attributes, prices and stock">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit details</button>
               <button class="btn btn-sm" id="clone-product" title="Create a copy of this product (colourway) with its images">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Clone product</button></div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Clone product</button></div></div>
             <div class="between pad"><p class="muted">Select the reference image(s) the AI should work from.</p><div style="display:flex; gap:8px; flex-wrap:wrap"><button class="btn btn-sm" id="open-picker">Add from another product</button><label class="btn btn-sm">Upload image <input type="file" id="ref-upload" accept="image/*" multiple hidden></label><button class="btn btn-sm" id="ref-url">Add from URL / page</button></div></div>
             <div class="media-grid" id="product-media"></div>
           </section>
@@ -125,6 +127,24 @@
     </div>
   </dialog>
 
+  <dialog id="edit-dialog" class="lightbox picker">
+    <form method="dialog" class="preview-head"><h2 id="edit-title">Edit product</h2><button class="btn btn-quiet">Cancel</button></form>
+    <div class="picker-body gen-form">
+      <div class="row2"><label>Name <input id="ed-name"></label><label>Slug <span class="hint">URL part</span><input id="ed-slug"></label></div>
+      <div class="row2"><label>Category <select id="ed-category"></select></label><label>SEO title <input id="ed-seo-title" maxlength="70"></label></div>
+      <label>Description <span class="hint">blank line = new paragraph</span><textarea id="ed-desc" rows="5"></textarea></label>
+      <label>SEO description <input id="ed-seo-desc" maxlength="155"></label>
+      <div id="ed-attrs" class="row3"></div>
+      <h3>German translation</h3>
+      <div class="row2"><label>Name (DE) <input id="ed-name-de"></label><label>SEO title (DE) <input id="ed-seo-title-de" maxlength="70"></label></div>
+      <label>Description (DE) <textarea id="ed-desc-de" rows="4"></textarea></label>
+      <label>SEO description (DE) <input id="ed-seo-desc-de" maxlength="155"></label>
+      <h3>Variants</h3>
+      <div class="table-wrap"><table class="products" id="ed-variants"></table></div>
+      <div class="between"><span class="muted" id="ed-msg"></span><button class="btn btn-primary" id="ed-save">Save to Saleor</button></div>
+    </div>
+  </dialog>
+
   <dialog id="clone-dialog" class="lightbox">
     <form method="dialog" class="preview-head"><h2>Clone product with this image</h2><button class="btn btn-quiet">Cancel</button></form>
     <div class="gen-form" style="width:min(640px,88vw)">
@@ -145,6 +165,6 @@
     <div id="lightbox-body"></div>
   </dialog>
 
-  <script src="/static/studio/app.js?v=0.6.1"></script>
+  <script src="/static/studio/app.js?v=0.7.0"></script>
 </body>
 </html>

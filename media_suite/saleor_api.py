@@ -409,3 +409,85 @@ async def _product_full(self, product_id: str) -> Optional[dict]:
 
 
 SaleorAPI.product_full = _product_full
+
+
+# --------------------------------------------------------------------------
+# Product editor (AI Studio "Edit details")
+# --------------------------------------------------------------------------
+PRODUCT_EDIT = """
+query EditSource($id: ID!) {
+  product(id: $id) {
+    id name slug description seoTitle seoDescription
+    productType { id }
+    category { id }
+    attributes { attribute { id name inputType } values { name plainText } }
+    translation(languageCode: DE) { name description seoTitle seoDescription }
+    variants {
+      id sku name
+      attributes { attribute { name } values { name } }
+      channelListings { channel { id } price { amount currency } }
+      stocks { warehouse { id } quantity }
+    }
+  }
+}
+"""
+
+PRODUCT_UPDATE = """
+mutation EditProduct($id: ID!, $input: ProductInput!) {
+  productUpdate(id: $id, input: $input) { product { id name slug } errors { field message code } }
+}
+"""
+
+VARIANT_UPDATE = """
+mutation EditVariant($id: ID!, $input: ProductVariantInput!) {
+  productVariantUpdate(id: $id, input: $input) { errors { field message code } }
+}
+"""
+
+VARIANT_CHANNEL_UPDATE = """
+mutation EditVariantChannels($id: ID!, $input: [ProductVariantChannelListingAddInput!]!) {
+  productVariantChannelListingUpdate(id: $id, input: $input) { errors { field message code } }
+}
+"""
+
+VARIANT_STOCKS_UPDATE = """
+mutation EditVariantStocks($id: ID!, $stocks: [StockInput!]!) {
+  productVariantStocksUpdate(variantId: $id, stocks: $stocks) { errors { field message code } }
+}
+"""
+
+
+async def _product_edit(self, product_id: str) -> Optional[dict]:
+    return (await self.execute(PRODUCT_EDIT, {"id": product_id})).get("product")
+
+
+async def _update_product(self, product_id: str, input_data: dict) -> dict:
+    r = (await self.execute(PRODUCT_UPDATE, {"id": product_id, "input": input_data}))["productUpdate"]
+    if r["errors"]:
+        raise SaleorAPIError("productUpdate failed", r["errors"])
+    return r["product"]
+
+
+async def _update_variant(self, variant_id: str, input_data: dict):
+    r = (await self.execute(VARIANT_UPDATE, {"id": variant_id, "input": input_data}))["productVariantUpdate"]
+    if r["errors"]:
+        raise SaleorAPIError("productVariantUpdate failed", r["errors"])
+
+
+async def _update_variant_prices(self, variant_id: str, listings: list):
+    r = (await self.execute(VARIANT_CHANNEL_UPDATE, {"id": variant_id, "input": listings}))["productVariantChannelListingUpdate"]
+    if r["errors"]:
+        raise SaleorAPIError("productVariantChannelListingUpdate failed", r["errors"])
+
+
+async def _update_variant_stocks(self, variant_id: str, stocks: list):
+    r = (await self.execute(VARIANT_STOCKS_UPDATE, {"id": variant_id, "stocks": stocks}))["productVariantStocksUpdate"]
+    if r["errors"]:
+        raise SaleorAPIError("productVariantStocksUpdate failed", r["errors"])
+
+
+SaleorAPI.product_edit = _product_edit
+SaleorAPI.update_product = _update_product
+SaleorAPI.update_variant = _update_variant
+SaleorAPI.update_variant_prices = _update_variant_prices
+SaleorAPI.update_variant_stocks = _update_variant_stocks

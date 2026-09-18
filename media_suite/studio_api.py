@@ -16,7 +16,8 @@ from .jobs import asset_dir, start_job
 from .providers import PROVIDERS, catalog, find_model
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .storefront import notify_storefront
-from .clone import clone_product
+from .clone import clone_product, _attr_input
+from .saleor_api import editorjs
 from .scrape import fetch_page_images
 from .jobs import normalize_image, _check_public_url
 from .providers.base import ProviderError
@@ -413,3 +414,99 @@ async def remove_media(body: RemoveMediaBody, shop: Installation = Depends(curre
         raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
     await notify_storefront(shop.domain, body.product_id, "", "media-removed")
     return {"removed": body.media_id}
+
+
+# -- product editor -----------------------------------------------------------------
+def _paragraphs(description_json: Optional[str]) -> List[str]:
+    try:
+        blocks = json.loads(description_json or "{}").get("blocks", [])
+    except json.JSONDecodeError:
+        return []
+    import re as _re
+    return [_re.sub(r"<[^>]+>", "", b.get("data", {}).get("text", "")) for b in blocks if b.get("type") == "paragraph"]
+
+
+@router.get("/product-details/{product_id}")
+async def product_details(product_id: str, shop: Installation = Depends(current_shop)):
+    try:
+        async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+            p = await api.product_edit(product_id)
+            meta = await api.builder_meta()
+    except SaleorAPIError as exc:
+        raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
+    if not p:
+        raise HTTPException(status_code=404, detail="product not found")
+    ptype = next((t for t in meta["productTypes"] if t["id"] == p["productType"]["id"]), {"productAttributes": []})
+    current = {a["attribute"]["id"]: ", ".join(v.get("name") or v.get("plainText") or "" for v in a["values"]) for a in p["attributes"]}
+    tr = p.get("translation") or {}
+    return {
+        "id": p["id"], "name": p["name"], "slug": p["slug"], "category_id": (p.get("category") or {}).get("id"),
+        "description": _paragraphs(p.get("description")), "seo_title": p.get("seoTitle") or "", "seo_description": p.get("seoDescription") or "",
+        "attributes": [{**a, "value": current.get(a["id"], "")} for a in ptype["productAttributes"]],
+        "translation_de": {"name": tr.get("name") or "", "description": _paragraphs(tr.get("description")), "seo_title": tr.get("seoTitle") or "", "seo_description": tr.get("seoDescription") or ""},
+        "channels": meta["channels"], "warehouses": meta["warehouses"], "categories": meta["categories"],
+        "variants": [{"id": v["id"], "sku": v.get("sku") or "", "label": " / ".join(val["name"] for a in v["attributes"] for val in a["values"]) or v.get("name") or "default",
+                      "prices": {c["channel"]["id"]: c["price"]["amount"] for c in v["channelListings"] if c.get("price")},
+                      "stocks": {s["warehouse"]["id"]: s["quantity"] for s in v["stocks"]}} for v in p["variants"]],
+    }
+
+
+class VariantEdit(BaseModel):
+    id: str
+    sku: str = ""
+    prices: dict = {}
+    stocks: dict = {}
+
+
+class ProductEdit(BaseModel):
+    name: str
+    slug: Optional[str] = None
+    category_id: Optional[str] = None
+    description: List[str] = []
+    seo_title: str = ""
+    seo_description: str = ""
+    attributes: dict = {}                 # attribute id -> value (comma separated for multiselect)
+    translation_de: Optional[dict] = None
+    variants: List[VariantEdit] = []
+
+
+@router.put("/product-details/{product_id}")
+async def update_product_details(product_id: str, body: ProductEdit, shop: Installation = Depends(current_shop)):
+    steps = []
+    try:
+        async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+            meta = await api.builder_meta()
+            types = {a["id"]: a["inputType"] for t in meta["productTypes"] for a in t["productAttributes"]}
+            attrs = []
+            for aid, val in body.attributes.items():
+                if val in (None, ""):
+                    continue
+                fake = {"attribute": {"id": aid, "name": "", "inputType": types.get(aid, "DROPDOWN")}, "values": [{"name": v.strip()} for v in str(val).split(",") if v.strip()]}
+                x = _attr_input(fake, {})
+                if x:
+                    attrs.append(x)
+            inp = {"name": body.name.strip(), "description": editorjs(body.description), "attributes": attrs,
+                   "seo": {"title": body.seo_title[:70], "description": body.seo_description[:300]}}
+            if body.slug:
+                inp["slug"] = body.slug.strip()
+            if body.category_id:
+                inp["category"] = body.category_id
+            product = await api.update_product(product_id, inp)
+            steps.append("product updated")
+            if body.translation_de and body.translation_de.get("name"):
+                t = body.translation_de
+                await api.translate_product(product_id, "DE", t["name"], editorjs(t.get("description", [])), t.get("seo_title", "")[:70], t.get("seo_description", "")[:300])
+                steps.append("German translation saved")
+            for v in body.variants:
+                if v.sku is not None:
+                    await api.update_variant(v.id, {"sku": v.sku.strip() or None})
+                if v.prices:
+                    await api.update_variant_prices(v.id, [{"channelId": ch, "price": float(pr)} for ch, pr in v.prices.items() if pr not in (None, "")])
+                if v.stocks:
+                    await api.update_variant_stocks(v.id, [{"warehouse": wh, "quantity": int(q)} for wh, q in v.stocks.items()])
+            if body.variants:
+                steps.append(f"{len(body.variants)} variant(s) updated")
+    except SaleorAPIError as exc:
+        raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors, "done": steps})
+    await notify_storefront(shop.domain, product_id, product.get("slug", ""), "product-updated")
+    return {"product": product, "steps": steps}
