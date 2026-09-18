@@ -21,10 +21,22 @@
   window.addEventListener("message", (e) => { const d = e.data || {}; if (d.type === "handshake" && d.payload?.token) { const first = !state.token; state.token = d.payload.token; if (!state.domain) state.domain = domainFromToken(state.token); if (first) boot(); } });
   window.parent.postMessage({ type: "notifyReady", payload: { actionId: crypto.randomUUID() } }, "*");
 
-  async function api(path, options = {}) {
+
+  // Dashboard tokens expire after a few minutes. On an auth failure ask the dashboard for a new handshake and retry once.
+  let _tokenWaiters = [];
+  window.addEventListener("message", (e) => { const d = e.data || {}; if (d.type === "handshake" && d.payload?.token) { for (const w of _tokenWaiters) w(d.payload.token); _tokenWaiters = []; } });
+  function refreshToken() {
+    return new Promise((resolve) => { const t = setTimeout(() => resolve(null), 4000); _tokenWaiters.push((tok) => { clearTimeout(t); resolve(tok); }); window.parent.postMessage({ type: "notifyReady", payload: { actionId: crypto.randomUUID() } }, "*"); });
+  }
+  async function api(path, options = {}) { return _api(path, options, true); }
+  async function _api(path, options, retry) {
     const headers = { "X-Saleor-Domain": state.domain, "X-Saleor-Token": state.token, ...(options.headers || {}) };
     if (!(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
     const res = await fetch(path, { ...options, headers });
+    if ((res.status === 400 || res.status === 401) && retry) {
+      const txt = await res.clone().text();
+      if (/SALEOR-DOMAIN|SALEOR-TOKEN|token/i.test(txt)) { const tok = await refreshToken(); if (tok) { state.token = tok; return _api(path, options, false); } }
+    }
     if (!res.ok) { let d = res.statusText || `HTTP ${res.status}`; try { const j = await res.json(); d = typeof j.detail === "string" ? j.detail : (j.detail?.message + (j.detail?.errors ? " — " + j.detail.errors.map((e) => `${e.field || ""} ${e.message}`).join("; ") : "")); } catch {} throw new Error(d); }
     return res.json();
   }
