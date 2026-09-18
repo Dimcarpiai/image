@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.1.5">
+  <link rel="stylesheet" href="/static/app.css?v=1.1.6">
 </head>
 <body>
   <main id="app" class="app studio" hidden>
@@ -53,6 +53,7 @@
                   <label>Variations <select id="adv-n"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
                   <label>Size <select id="adv-size"><option value="">Automatic</option><option value="1024x1536">Portrait 3:4</option><option value="1024x1024">Square</option><option value="1536x1024">Landscape</option></select></label>
                 </div>
+                <div id="adv-options" class="row-inline"></div>
                 <label>Extra instructions <span class="hint">optional</span><input id="adv-extra" placeholder="e.g. slightly warmer light"></label>
               </details>
               <div class="between gen-foot"><span class="muted" id="cost-hint"></span><button class="btn btn-primary" id="generate">Generate</button></div>
@@ -123,6 +124,6 @@
   <dialog id="clone-dialog" class="lightbox"><form method="dialog" class="preview-head"><h2>Clone product</h2><button class="btn btn-quiet">Cancel</button></form><div class="gen-form" style="width:min(600px,88vw)"><label>New name <input id="clone-name"></label><div class="row2"><label>New colour <input id="clone-color" placeholder="e.g. Navy"></label><label>SKU suffix <input id="clone-suffix"></label></div><label class="check"><input type="checkbox" id="clone-images" checked> copy existing images</label><label class="check"><input type="checkbox" id="clone-stock"> copy stock</label><div class="between"><span class="muted" id="clone-msg"></span><button class="btn btn-primary" id="clone-go">Create</button></div></div></dialog>
   <dialog id="lightbox" class="lightbox"><form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form><div id="lightbox-body"></div></dialog>
 
-  <script src="/static/studio/app.js?v=1.1.5"></script>
+  <script src="/static/studio/app.js?v=1.1.6"></script>
 </body>
 </html>

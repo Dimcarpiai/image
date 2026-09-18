@@ -58,7 +58,7 @@
       S.opts.locks = S.tasks.locks.map((l) => l.id); S.lockedModel = S.tasks.locked_model; S.looks = S.tasks.looks;
       try { const st = await api("/api/studio/settings"); if (st.default_background) S.opts.background = st.default_background; if (st.default_pose) S.opts.pose = st.default_pose; } catch {}
       S.models = await api("/api/studio/assets?kind=model");
-      renderKeys(); renderAdvanced(); await loadProducts(true); refreshReviewCount();
+      renderKeys(); renderAdvanced(); renderModelParams(); await loadProducts(true); refreshReviewCount();
       if (!S.catalog.providers.some((p) => p.configured)) showView("settings");
     } catch (e) { notify("error", e.message); }
   }
@@ -106,7 +106,7 @@
   // ---- 2 · tasks --------------------------------------------------------------------
   function renderTasks() {
     const g = $("#task-grid"); g.replaceChildren();
-    for (const t of S.tasks.tasks) g.append(el("button", { class: `task${S.task === t.id ? " active" : ""}`, onclick: () => { S.task = t.id; renderTasks(); renderRefs(); renderOptions(); } }, el("strong", {}, t.label), el("span", {}, t.help)));
+    for (const t of S.tasks.tasks) g.append(el("button", { class: `task${S.task === t.id ? " active" : ""}`, onclick: () => { S.task = t.id; renderTasks(); renderRefs(); renderOptions(); renderModelParams(); } }, el("strong", {}, t.label), el("span", {}, t.help)));
 
   }
 
@@ -225,10 +225,29 @@
   const cleanOpts = () => { const { selectedColors, pack, ...rest } = S.opts; return rest; };
   function renderAdvanced() {
     const ps = $("#adv-provider"); ps.replaceChildren(el("option", { value: "" }, "Automatic")); for (const p of S.catalog.providers.filter((p) => p.configured)) ps.append(el("option", { value: p.id }, p.label));
-    ps.onchange = () => { const ms = $("#adv-model"); ms.replaceChildren(el("option", { value: "" }, "Automatic (first suitable)")); const p = S.catalog.providers.find((x) => x.id === ps.value); const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task]; for (const m of (p?.models || []).filter((m) => m.modes.includes(mode))) ms.append(el("option", { value: m.id }, m.label)); updateEstimate(); };
-    $("#adv-n").onchange = updateEstimate; $("#adv-model").onchange = updateEstimate;
+    ps.onchange = () => { const ms = $("#adv-model"); ms.replaceChildren(el("option", { value: "" }, "Automatic (first suitable)")); const p = S.catalog.providers.find((x) => x.id === ps.value); const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task]; for (const m of (p?.models || []).filter((m) => m.modes.includes(mode))) ms.append(el("option", { value: m.id }, m.label)); renderModelParams(); updateEstimate(); };
+    $("#adv-n").onchange = updateEstimate; $("#adv-model").onchange = () => { renderModelParams(); updateEstimate(); };
   }
-  const advanced = () => ({ provider: $("#adv-provider").value || null, model: $("#adv-model").value || null, n: Number($("#adv-n").value), size: $("#adv-size").value || null });
+  function resolvedModel() {
+    const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task];
+    const prov = $("#adv-provider").value || S.tasks.providers_ready[mode]?.[0]; if (!prov) return null;
+    const p = S.catalog.providers.find((x) => x.id === prov); if (!p) return null;
+    const mid = $("#adv-model").value || S.tasks.providers_ready[mode]?.[1] || (p.models.find((m) => m.modes.includes(mode)) || {}).id;
+    return p.models.find((m) => m.id === mid) || null;
+  }
+  function renderModelParams() {
+    const box = $("#adv-options"); const prev = advancedOptions(); box.replaceChildren();
+    const m = resolvedModel(); if (!m) return;
+    for (const [name, values] of Object.entries(m.options || {})) {
+      const sel = el("select", { "data-opt": name }); sel.append(el("option", { value: "" }, "auto"));
+      for (const v of values) sel.append(el("option", { value: v }, v)); if (prev[name]) sel.value = prev[name];
+      box.append(el("label", {}, `${m.label.split(" (")[0]}: ${name.replace(/_/g, " ")}`, sel));
+    }
+  }
+  const advancedOptions = () => Object.fromEntries([...document.querySelectorAll("#adv-options select")].filter((s) => s.value).map((s) => [s.dataset.opt, s.value]));
+  function _unused() {
+  }
+  const advanced = () => ({ provider: $("#adv-provider").value || null, model: $("#adv-model").value || null, n: Number($("#adv-n").value), size: $("#adv-size").value || null, options: advancedOptions() });
   let et; function updateEstimate() { clearTimeout(et); et = setTimeout(async () => { try { const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task]; const ready = S.tasks.providers_ready[mode]; const prov = $("#adv-provider").value || ready?.[0], model = $("#adv-model").value || ready?.[1]; if (!prov) { $("#cost-hint").textContent = "No provider configured for this task — add a key in Settings."; return; } const n = S.task === "variants" ? (S.opts.selectedColors || []).length || 1 : S.task === "pack" ? 4 : Number($("#adv-n").value); const e = await api("/api/studio/estimate", { method: "POST", body: JSON.stringify({ provider: prov, model, mode, n }) }); $("#cost-hint").textContent = `${prov} · ≈ €${e.cost_eur.toFixed(2)} · ~${e.seconds >= 90 ? Math.round(e.seconds / 60) + " min" : e.seconds + " s"}` + (e.daily_budget_eur ? ` · today €${e.spent_today_eur.toFixed(2)}/${e.daily_budget_eur.toFixed(0)}` : ""); } catch { $("#cost-hint").textContent = ""; } }, 200); }
 
   // ---- generate ---------------------------------------------------------------------------

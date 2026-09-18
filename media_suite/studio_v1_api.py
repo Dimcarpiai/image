@@ -109,6 +109,7 @@ class Advanced(BaseModel):
     n: int = 1
     quality: Optional[str] = None
     size: Optional[str] = None
+    options: Dict[str, str] = {}      # model-specific parameters (cloth_type, steps, guidance, category, duration, ...)
 
 
 class RunBody(BaseModel):
@@ -214,6 +215,10 @@ def _create_job(shop: Installation, product: dict, body: RunBody) -> dict:
     if provider == "local":
         options["cloth_type"] = {"tops": "upper", "bottoms": "lower", "one-pieces": "overall"}.get(product.get("tryon_category", "tops"), "upper")
 
+    spec = find_model(provider, model)
+    for k, v in (body.advanced.options or {}).items():          # explicit model parameters win over the automatic ones
+        if spec and k in spec.options and v in spec.options[k]:
+            options[k] = v
     cost = estimate(provider, model, mode, n)["cost_eur"]
     _budget_check(shop.domain, cost)
     extra_assets = list(refs.fabric_asset_ids)
