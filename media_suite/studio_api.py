@@ -15,6 +15,7 @@ from .db import Installation, db
 from .jobs import asset_dir, start_job
 from .providers import PROVIDERS, catalog, find_model
 from .saleor_api import SaleorAPI, SaleorAPIError
+from .storefront import notify_storefront
 
 router = APIRouter(prefix="/api/studio", tags=["studio"])
 
@@ -135,6 +136,104 @@ async def media(asset_id: str, sig: str = Query(...)):
     return FileResponse(row["path"], media_type=row["mime"], headers={"Cache-Control": "private, max-age=3600"})
 
 
+# -- review bucket -------------------------------------------------------------
+@router.get("/review")
+async def review_queue(shop: Installation = Depends(current_shop)):
+    """Generated images that nobody has approved or rejected yet, newest first, with product names."""
+    pending = [a for a in db.list_assets(shop.domain, kind="generated", limit=200) if a["meta"].get("status", "review") == "review"]
+    names = {}
+    ids = {a["product_id"] for a in pending if a.get("product_id")}
+    if ids:
+        async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+            for pid in ids:
+                try:
+                    p = await api.get_product(pid)
+                    names[pid] = p["name"] if p else "(deleted product)"
+                except SaleorAPIError:
+                    names[pid] = pid
+    return [{**_asset_out(a), "product_name": names.get(a.get("product_id"), "")} for a in pending]
+
+
+class ReviewBody(BaseModel):
+    asset_id: str
+    decision: str     # approve | reject
+
+
+@router.post("/review")
+async def review(body: ReviewBody, shop: Installation = Depends(current_shop)):
+    asset = db.get_asset(shop.domain, body.asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="asset not found")
+    if body.decision == "reject":
+        db.delete_asset(shop.domain, body.asset_id)
+        try:
+            os.remove(asset["path"])
+        except OSError:
+            pass
+        return {"asset_id": body.asset_id, "status": "rejected"}
+    if body.decision != "approve":
+        raise HTTPException(status_code=400, detail="decision must be approve or reject")
+    if not asset.get("product_id"):
+        raise HTTPException(status_code=400, detail="asset has no product")
+    result = await attach(AttachBody(asset_id=body.asset_id, product_id=asset["product_id"], alt=asset.get("label") or ""), shop)
+    return {"asset_id": body.asset_id, "status": "approved", **result}
+
+
+# -- presets & packs ------------------------------------------------------------
+DEFAULT_PRESETS = [
+    {"id": "studio", "name": "Studio white", "mode": "scene", "provider": "stability", "model": "relight",
+     "prompt": "clean white studio background, soft even light from above, subtle floor shadow", "options": {"n": 1}, "in_pack": True},
+    {"id": "lifestyle", "name": "Lifestyle scene", "mode": "scene", "provider": "openai", "model": "gpt-image-2.5-sunburst",
+     "prompt": "on a wooden table in a bright Scandinavian living room, morning light, shallow depth of field", "options": {"n": 1, "size": "1024x1536"}, "in_pack": True},
+    {"id": "onmodel", "name": "On model (FASHN)", "mode": "tryon", "provider": "fal", "model": "fal-ai/fashn/tryon/v1.6",
+     "prompt": "", "options": {"n": 2, "category": "auto"}, "in_pack": True},
+    {"id": "clip", "name": "Turntable clip", "mode": "video", "provider": "fal", "model": "fal-ai/kling-video/v3/turbo/pro/image-to-video",
+     "prompt": "slow 360 degree turntable of the product, soft studio light, seamless", "options": {"n": 1, "duration": "5"}, "in_pack": False},
+]
+
+
+@router.get("/presets")
+async def get_presets(shop: Installation = Depends(current_shop)):
+    return db.get_settings(shop.domain).get("presets") or DEFAULT_PRESETS
+
+
+@router.put("/presets")
+async def put_presets(presets: List[dict], shop: Installation = Depends(current_shop)):
+    st = db.get_settings(shop.domain)
+    st["presets"] = presets
+    db.save_settings(shop.domain, st)
+    return presets
+
+
+class PackBody(BaseModel):
+    product_id: str
+    product_image_urls: List[str] = []
+    model_asset_id: Optional[str] = None
+    preset_ids: Optional[List[str]] = None    # default: all presets with in_pack
+
+
+@router.post("/pack")
+async def pack(body: PackBody, shop: Installation = Depends(current_shop)):
+    presets = db.get_settings(shop.domain).get("presets") or DEFAULT_PRESETS
+    chosen = [p for p in presets if (body.preset_ids and p["id"] in body.preset_ids) or (not body.preset_ids and p.get("in_pack"))]
+    keys = db.get_settings(shop.domain).get("keys", {})
+    started, skipped = [], []
+    for p in chosen:
+        if not keys.get(p["provider"]):
+            skipped.append({"preset": p["name"], "reason": f"no {p['provider']} key"}); continue
+        if p["mode"] == "tryon" and not body.model_asset_id:
+            skipped.append({"preset": p["name"], "reason": "no model photo selected"}); continue
+        if not find_model(p["provider"], p["model"]):
+            skipped.append({"preset": p["name"], "reason": "unknown model"}); continue
+        job = db.create_job(shop.domain, p["mode"], p["provider"], p["model"], body.product_id, {
+            "prompt": p.get("prompt", ""), "product_image_urls": body.product_image_urls, "source_asset_ids": [],
+            "model_asset_id": body.model_asset_id if p["mode"] == "tryon" else None,
+            "options": {**p.get("options", {}), "n": max(1, min(int(p.get("options", {}).get("n", 1)), 4))}, "preset": p["name"]})
+        start_job(shop, job["id"])
+        started.append(job["id"])
+    return {"started": started, "skipped": skipped}
+
+
 # -- generation --------------------------------------------------------------
 class GenerateBody(BaseModel):
     mode: str
@@ -210,4 +309,6 @@ async def attach(body: AttachBody, shop: Installation = Depends(current_shop)):
             media = await api.create_media(body.product_id, data, f"ai-studio-{asset['id'][:8]}.{ext}", asset["mime"], body.alt)
     except SaleorAPIError as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
+    db.set_asset_meta(shop.domain, asset["id"], {"status": "approved", "media_id": media["id"]})
+    await notify_storefront(shop.domain, body.product_id, "", "media-attached")
     return {"media": media}

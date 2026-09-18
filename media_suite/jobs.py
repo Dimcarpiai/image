@@ -91,7 +91,8 @@ async def _run(installation: Installation, job_id: str):
                 path = save_bytes("models" if kind == "model" else "generated", hint, out.data, out.mime)
                 asset = db.add_asset(installation.domain, kind, out.mime, path, product_id=job["product_id"],
                                      label=(job["input"].get("prompt") or "AI model")[:120],
-                                     meta={"job_id": job_id, "mode": job["mode"], "provider": job["provider"], "model": job["model"]})
+                                     meta={"job_id": job_id, "mode": job["mode"], "provider": job["provider"], "model": job["model"],
+                                           "status": "review" if kind == "generated" else "approved", "preset": job["input"].get("preset", "")})
                 asset_ids.append(asset["id"])
             db.update_job(job_id, "done", asset_ids=asset_ids)
         except asyncio.TimeoutError:

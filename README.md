@@ -15,13 +15,27 @@ the compatibility fixes for current Starlette/Saleor 3.21 applied.
 Optional fifth provider **Local GPU (CatVTON)**: point it at your own try-on server (see the separate
 `catvton-server` package) via `https://<tunnel-url>|<token>` in the API keys panel. CatVTON is CC BY-NC-SA (non-commercial).
 
+- **Product Builder** (0.4.0) — Catalog → Product Builder: upload supplier photos or pick AI Studio results →
+  *Draft with AI* (name, DE/EN descriptions, attributes, SEO, alt text; needs an OpenAI or Gemini key) →
+  variant matrix (size × colour …) with SKU pattern (`{brand}-{style}-{color:3}-{size}`), price per channel,
+  stock per warehouse → creates the product, variants, channel listings, images (per-variant assignment) and the
+  German translation in one click.
+- **Presets & packs** (AI Studio) — save prompt/provider/model combinations; *Generate pack* runs every preset
+  marked ★ for the selected product (default pack: studio-white relight, lifestyle scene, on-model FASHN).
+- **Review queue** (AI Studio) — generated images wait for approval; *Approve* attaches them to the product,
+  *Reject* deletes them. Nothing is attached automatically.
+- **Storefront revalidation** — Builder settings → *Storefront revalidate URL* (+ secret). The app POSTs
+  `{"productId", "slug", "reason", "secret"}` with `Authorization: Bearer <secret>` after a product is created,
+  an image is approved/attached, or the optimizer changed media, so cached storefront pages refresh.
+
 ## Layout
 
 | Path | Purpose |
 |---|---|
 | `media_suite/main.py` | manifest with two extensions, install (+ optimizer webhook), pages |
 | `media_suite/optimizer_api.py`, `optimizer.py`, `service.py` | Image Optimizer |
-| `media_suite/studio_api.py`, `jobs.py`, `providers/` | AI Studio |
+| `media_suite/studio_api.py`, `jobs.py`, `providers/` | AI Studio (incl. review queue, presets, packs) |
+| `media_suite/builder_api.py`, `llm.py`, `storefront.py` | Product Builder, AI drafting, storefront notifications |
 | `media_suite/saleor_api.py`, `db.py`, `crypto.py`, `settings.py` | shared |
 | `media_suite/static/optimizer/`, `static/studio/`, `static/app.css` | dashboard pages |
 

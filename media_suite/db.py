@@ -144,6 +144,14 @@ class Database:
             rows = self._conn.execute(q, params).fetchall()
         return [self._asset_out(dict(r)) for r in rows]
 
+    def set_asset_meta(self, domain: str, asset_id: str, patch: dict):
+        asset = self.get_asset(domain, asset_id)
+        if not asset:
+            return
+        meta = {**asset["meta"], **patch}
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE assets SET meta = ? WHERE id = ?", (json.dumps(meta), asset_id))
+
     def delete_asset(self, domain: str, asset_id: str) -> Optional[dict]:
         asset = self.get_asset(domain, asset_id)
         if asset:

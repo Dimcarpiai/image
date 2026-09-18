@@ -205,3 +205,25 @@ button, input, select { font: inherit; color: inherit; }
 .job-head .prompt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gen-form textarea { max-width: 100%; box-sizing: border-box; }
 .tile .cap { max-width: 100%; }
+
+/* ---- Product Builder ---- */
+.steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.steps .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); font-size: 13px; color: var(--text-muted); background: var(--surface); }
+.steps .chip.active { border-color: var(--primary); color: var(--text); font-weight: 600; }
+.steps .chip.done { background: var(--success-bg); color: var(--success-text); border-color: transparent; }
+.panel-foot { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-top: 1px solid var(--border); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.gen-form input[type=text], .gen-form input:not([type]), .gen-form input[type=password], .gen-form input[type=number] { border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius); padding: 8px 10px; font-weight: 400; font-size: 14px; min-width: 0; }
+.checks-inline { display: flex; flex-wrap: wrap; gap: 8px 14px; font-weight: 400; align-items: center; }
+.checks-inline label { flex-direction: row; align-items: center; gap: 6px; font-weight: 400; }
+.checks-inline input[type=number] { width: 90px; }
+.values { display: flex; flex-wrap: wrap; gap: 6px; }
+.values .val { border: 1px solid var(--border-strong); border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 13px; user-select: none; }
+.values .val.on { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+.values input { width: 110px; }
+#matrix td input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 4px; padding: 5px 6px; font-size: 13px; }
+#matrix td input.num { width: 84px; }
+#matrix tr.off { opacity: .45; }
+#matrix select { font-size: 13px; padding: 4px; border: 1px solid var(--border); border-radius: 4px; }
+@media (max-width: 900px) { .row2, .row3 { grid-template-columns: 1fr; } }

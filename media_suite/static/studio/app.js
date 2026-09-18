@@ -11,7 +11,7 @@
     selectedAssets: new Set(),   // generated asset ids used as reference
     mode: "scene",
     modelPhotos: [], modelPhotoId: null,
-    jobs: [], pollTimer: null,
+    jobs: [], pollTimer: null, presets: [],
   };
   if (qs.get("theme") === "dark" || (!qs.get("theme") && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.dataset.theme = "dark";
 
@@ -55,7 +55,7 @@
     try {
       state.catalog = await api("/api/studio/catalog");
       renderKeys(); renderModeTabs();
-      await Promise.all([loadProducts(true), loadModelPhotos()]);
+      await Promise.all([loadProducts(true), loadModelPhotos(), loadPresets(), loadReview()]);
       if (!state.catalog.providers.some((p) => p.configured)) { $("#settings").hidden = false; }
     } catch (e) { notify("error", "AI Studio", e.message); }
   }
@@ -258,5 +258,61 @@
     $("#lightbox").showModal();
   }
 
+  // ---- presets & packs ----------------------------------------------------
+  async function loadPresets() { state.presets = await api("/api/studio/presets"); renderPresets(); }
+  function renderPresets() {
+    const sel = $("#preset"); sel.replaceChildren(el("option", { value: "" }, "— none —"));
+    for (const p of state.presets.filter((p) => p.mode === state.mode)) sel.append(el("option", { value: p.id }, p.name + (p.in_pack ? " ★" : "")));
+  }
+  $("#preset").addEventListener("change", (e) => {
+    const p = state.presets.find((x) => x.id === e.target.value); if (!p) return;
+    $("#provider").value = p.provider; renderModelSelect(); $("#model").value = p.model; renderModelOptions();
+    for (const s of $("#model-options").querySelectorAll("select")) if (p.options?.[s.dataset.opt]) s.value = p.options[s.dataset.opt];
+    if (p.options?.n) $("#count").value = String(p.options.n);
+    $("#prompt").value = p.prompt || "";
+  });
+  $("#save-preset").addEventListener("click", async () => {
+    const name = prompt("Preset name:"); if (!name) return;
+    const inPack = confirm("Include this preset in 'Generate pack'?");
+    const options = { n: Number($("#count").value) }; for (const s of $("#model-options").querySelectorAll("select")) options[s.dataset.opt] = s.value;
+    const preset = { id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, mode: state.mode, provider: $("#provider").value, model: $("#model").value, prompt: $("#prompt").value.trim(), options, in_pack: inPack };
+    state.presets = [...state.presets.filter((p) => p.id !== preset.id), preset];
+    try { await api("/api/studio/presets", { method: "PUT", body: JSON.stringify(state.presets) }); renderPresets(); $("#preset").value = preset.id; notify("success", "AI Studio", `Preset "${name}" saved`); }
+    catch (e) { notify("error", "AI Studio", e.message); }
+  });
+  $("#generate-pack").addEventListener("click", async () => {
+    const p = state.product; if (!p) return notify("error", "AI Studio", "Pick a product first.");
+    const body = { product_id: p.id, product_image_urls: p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url), model_asset_id: state.modelPhotoId };
+    if (!body.product_image_urls.length) return notify("error", "AI Studio", "Tick at least one product image.");
+    try {
+      const r = await api("/api/studio/pack", { method: "POST", body: JSON.stringify(body) });
+      const msg = `${r.started.length} job(s) started` + (r.skipped.length ? `; skipped: ${r.skipped.map((s) => `${s.preset} (${s.reason})`).join(", ")}` : "");
+      notify(r.started.length ? "success" : "error", "AI Studio", msg); log(msg); await loadJobs();
+    } catch (e) { notify("error", "AI Studio", e.message); }
+  });
+  const _renderModeTabs = renderModeTabs;
+  renderModeTabs = function () { _renderModeTabs(); renderPresets(); };
+
+  // ---- review queue --------------------------------------------------------
+  async function loadReview() {
+    const items = await api("/api/studio/review");
+    $("#review-count").textContent = String(items.length);
+    const grid = $("#review-grid"); grid.replaceChildren();
+    for (const a of items) {
+      grid.append(el("div", { class: "tile" },
+        el("img", { src: a.url, alt: "", loading: "lazy" }),
+        el("div", { class: "cap", title: a.label || "" }, (a.product_name || "?") + " · " + (a.meta?.preset || a.meta?.mode || "")),
+        el("div", { class: "actions" },
+          el("button", { class: "btn btn-sm btn-primary", onclick: async () => { try { await api("/api/studio/review", { method: "POST", body: JSON.stringify({ asset_id: a.id, decision: "approve" }) }); notify("success", "AI Studio", "Approved and attached"); loadReview(); if (state.product) loadJobs(); } catch (e) { notify("error", "AI Studio", e.message); } } }, "Approve"),
+          el("button", { class: "btn btn-sm", onclick: async () => { await api("/api/studio/review", { method: "POST", body: JSON.stringify({ asset_id: a.id, decision: "reject" }) }); loadReview(); if (state.product) loadJobs(); } }, "Reject"))));
+    }
+    if (!items.length) grid.append(el("p", { class: "muted" }, "Nothing waiting for review."));
+  }
+  $("#refresh-review").addEventListener("click", loadReview);
+  const _loadJobs = loadJobs;
+  loadJobs = async function () { await _loadJobs(); if (!state.jobs.some((j) => j.status === "queued" || j.status === "running")) loadReview(); };
+  function log(text) { console.log("[studio]", text); }
+
   if (qs.get("token")) { state.token = qs.get("token"); if (!state.domain) state.domain = domainFromToken(state.token); boot(); }
 })();
+

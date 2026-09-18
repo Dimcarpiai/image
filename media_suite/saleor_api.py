@@ -250,3 +250,120 @@ class SaleorAPI:
             },
         )
         self._raise_on_errors(payload, "updatePrivateMetadata")
+
+
+# --------------------------------------------------------------------------
+# Product Builder: catalog metadata + creation
+# --------------------------------------------------------------------------
+BUILDER_META = """
+query BuilderMeta {
+  channels { id name slug currencyCode }
+  warehouses(first: 50) { edges { node { id name } } }
+  categories(first: 200) { edges { node { id name parent { name } } } }
+  productTypes(first: 100) {
+    edges { node {
+      id name
+      productAttributes { id name slug inputType valueRequired choices(first: 100) { edges { node { name } } } }
+      assignedVariantAttributes { attribute { id name slug inputType valueRequired choices(first: 100) { edges { node { name } } } } variantSelection }
+    } }
+  }
+}
+"""
+
+PRODUCT_CREATE = """
+mutation BuilderProductCreate($input: ProductCreateInput!) {
+  productCreate(input: $input) { product { id name slug } errors { field message code } }
+}
+"""
+
+PRODUCT_CHANNEL_LISTING_UPDATE = """
+mutation BuilderProductChannelListing($id: ID!, $input: ProductChannelListingUpdateInput!) {
+  productChannelListingUpdate(id: $id, input: $input) { errors { field message code channels } }
+}
+"""
+
+VARIANT_BULK_CREATE = """
+mutation BuilderVariants($product: ID!, $variants: [ProductVariantBulkCreateInput!]!) {
+  productVariantBulkCreate(product: $product, variants: $variants, errorPolicy: REJECT_EVERYTHING) {
+    productVariants { id sku name }
+    errors { field message code index }
+  }
+}
+"""
+
+VARIANT_MEDIA_ASSIGN = """
+mutation BuilderAssignMedia($mediaId: ID!, $variantId: ID!) {
+  variantMediaAssign(mediaId: $mediaId, variantId: $variantId) { errors { field message } }
+}
+"""
+
+PRODUCT_TRANSLATE = """
+mutation BuilderTranslate($id: ID!, $lang: LanguageCodeEnum!, $input: TranslationInput!) {
+  productTranslate(id: $id, languageCode: $lang, input: $input) { errors { field message } }
+}
+"""
+
+PRODUCT_SLUG = """
+query BuilderProductSlug($id: ID!) { product(id: $id) { id slug name } }
+"""
+
+
+def editorjs(paragraphs) -> str:
+    """Saleor stores descriptions as EditorJS JSON."""
+    blocks = [{"type": "paragraph", "data": {"text": p}} for p in paragraphs if p]
+    return json.dumps({"time": 0, "blocks": blocks, "version": "2.22.2"})
+
+
+class BuilderMixin:
+    async def builder_meta(self) -> dict:
+        d = await self.execute(BUILDER_META)
+        def attr(a):
+            return {"id": a["id"], "name": a["name"], "slug": a["slug"], "inputType": a["inputType"], "valueRequired": a["valueRequired"],
+                    "values": [c["node"]["name"] for c in (a.get("choices") or {}).get("edges", [])]}
+        return {
+            "channels": d["channels"],
+            "warehouses": [e["node"] for e in d["warehouses"]["edges"]],
+            "categories": [{"id": e["node"]["id"], "name": e["node"]["name"],
+                            "path": (e["node"]["parent"]["name"] + " / " if e["node"].get("parent") else "") + e["node"]["name"]}
+                           for e in d["categories"]["edges"]],
+            "productTypes": [{"id": e["node"]["id"], "name": e["node"]["name"],
+                              "productAttributes": [attr(a) for a in e["node"]["productAttributes"] or []],
+                              "variantAttributes": [attr(v["attribute"]) for v in e["node"]["assignedVariantAttributes"] or []]}
+                             for e in d["productTypes"]["edges"]],
+        }
+
+    async def create_product(self, input_data: dict) -> dict:
+        r = (await self.execute(PRODUCT_CREATE, {"input": input_data}))["productCreate"]
+        if r["errors"]:
+            raise SaleorAPIError("productCreate failed", r["errors"])
+        return r["product"]
+
+    async def update_product_channels(self, product_id: str, channels: list):
+        r = (await self.execute(PRODUCT_CHANNEL_LISTING_UPDATE, {"id": product_id, "input": {"updateChannels": channels}}))["productChannelListingUpdate"]
+        if r["errors"]:
+            raise SaleorAPIError("productChannelListingUpdate failed", r["errors"])
+
+    async def bulk_create_variants(self, product_id: str, variants: list) -> list:
+        r = (await self.execute(VARIANT_BULK_CREATE, {"product": product_id, "variants": variants}))["productVariantBulkCreate"]
+        if r["errors"]:
+            raise SaleorAPIError("productVariantBulkCreate failed", r["errors"])
+        return r["productVariants"]
+
+    async def assign_variant_media(self, media_id: str, variant_id: str):
+        r = (await self.execute(VARIANT_MEDIA_ASSIGN, {"mediaId": media_id, "variantId": variant_id}))["variantMediaAssign"]
+        if r["errors"]:
+            raise SaleorAPIError("variantMediaAssign failed", r["errors"])
+
+    async def translate_product(self, product_id: str, lang: str, name: str, description_json: str, seo_title: str, seo_description: str):
+        r = (await self.execute(PRODUCT_TRANSLATE, {"id": product_id, "lang": lang, "input": {
+            "name": name, "description": description_json, "seoTitle": seo_title, "seoDescription": seo_description}}))["productTranslate"]
+        if r["errors"]:
+            raise SaleorAPIError("productTranslate failed", r["errors"])
+
+    async def product_slug(self, product_id: str) -> Optional[dict]:
+        return (await self.execute(PRODUCT_SLUG, {"id": product_id})).get("product")
+
+
+for _name, _fn in vars(BuilderMixin).items():
+    if callable(_fn) and not _name.startswith("__"):
+        setattr(SaleorAPI, _name, _fn)

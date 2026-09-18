@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.3.2">
+  <link rel="stylesheet" href="/static/app.css?v=0.4.0">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -59,6 +59,13 @@
                 <p class="muted">A clear, front-facing photo of the person. Only use photos you have the rights to.</p>
                 <div class="media-grid small" id="model-photos"></div>
               </div>
+              <div class="between">
+                <label style="flex:1">Preset <select id="preset"><option value="">— none —</option></select></label>
+                <div style="display:flex; gap:8px; align-items:flex-end; padding-top:22px">
+                  <button class="btn btn-sm" id="save-preset" title="Save the current mode/provider/model/prompt as a preset">Save as preset</button>
+                  <button class="btn btn-sm" id="generate-pack" title="Run every preset marked 'in pack' for this product">Generate pack</button>
+                </div>
+              </div>
               <label>Prompt
                 <textarea id="prompt" rows="3" placeholder="e.g. on a wooden table in a bright kitchen, soft morning light, shallow depth of field"></textarea>
               </label>
@@ -78,6 +85,12 @@
     </div>
   </main>
 
+  <section class="panel" id="review-panel" style="margin-top:24px">
+    <div class="panel-head"><h2>Review queue <span class="badge badge-warn" id="review-count">0</span></h2><button class="btn btn-quiet" id="refresh-review">Refresh</button></div>
+    <p class="muted pad">Generated images wait here until someone approves them. Approve = attached to the product and the storefront is notified.</p>
+    <div class="media-grid" id="review-grid"></div>
+  </section>
+
   <div id="waiting" class="waiting">
     <p>Connecting to the Saleor dashboard…</p>
     <p class="muted">Open this page from the Saleor dashboard under Catalog → AI Studio.</p>
@@ -88,6 +101,6 @@
     <div id="lightbox-body"></div>
   </dialog>
 
-  <script src="/static/studio/app.js?v=0.3.2"></script>
+  <script src="/static/studio/app.js?v=0.4.0"></script>
 </body>
 </html>

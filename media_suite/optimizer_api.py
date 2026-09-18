@@ -17,6 +17,7 @@ from .db import Installation, db
 from .optimizer import OptimizeSettings, avif_supported, optimize_image
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .service import ProductResult, optimize_product
+from .storefront import notify_storefront
 
 router = APIRouter(prefix="/api/optimizer", tags=["optimizer"])
 
@@ -116,7 +117,10 @@ class OptimizeRequest(BaseModel):
 async def optimize(req: OptimizeRequest, shop: Installation = Depends(current_shop)):
     cfg = req.settings or db.get_optimize_settings(shop.domain)
     try:
-        return await optimize_product(shop, req.product_id, cfg, req.media_ids, req.force)
+        result = await optimize_product(shop, req.product_id, cfg, req.media_ids, req.force)
+        if any(r.status == "optimized" for r in result.results):
+            await notify_storefront(shop.domain, req.product_id, "", "media-optimized")
+        return result
     except SaleorAPIError as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
 
