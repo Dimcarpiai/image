@@ -130,6 +130,22 @@
     if (!grid.children.length) grid.append(el("p", { class: "muted" }, "This product has no images yet — upload one in the product page first."));
   }
 
+  // ---- references from computer / URL ---------------------------------------
+  $("#ref-upload").addEventListener("change", async (e) => {
+    for (const file of e.target.files) {
+      const fd = new FormData(); fd.append("file", file);
+      try { const a = await api("/api/builder/upload", { method: "POST", body: fd }); state.extraRefs.set(location.origin + a.url, { thumb: a.url, label: file.name }); }
+      catch (err) { notify("error", "AI Studio", err.message); }
+    }
+    e.target.value = ""; renderProductMedia();
+  });
+  $("#ref-url").addEventListener("click", () => {
+    const url = (prompt("Image URL (https://…):") || "").trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) return notify("error", "AI Studio", "The URL must start with http:// or https://");
+    state.extraRefs.set(url, { thumb: url, label: new URL(url).hostname }); renderProductMedia();
+  });
+
   // ---- picker: images from other products ----------------------------------
   $("#open-picker").addEventListener("click", () => { $("#picker").showModal(); $("#picker-search").value = ""; loadPicker(""); });
   let pickerTimer;

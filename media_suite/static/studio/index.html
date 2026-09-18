@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.5.0">
+  <link rel="stylesheet" href="/static/app.css?v=0.5.1">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -35,7 +35,7 @@
         <div id="workspace" hidden>
           <section class="panel">
             <div class="panel-head"><h2 id="product-title">Product</h2><span class="muted" id="product-sub"></span></div>
-            <div class="between pad"><p class="muted">Select the reference image(s) the AI should work from.</p><button class="btn btn-sm" id="open-picker">Add from another product</button></div>
+            <div class="between pad"><p class="muted">Select the reference image(s) the AI should work from.</p><div style="display:flex; gap:8px; flex-wrap:wrap"><button class="btn btn-sm" id="open-picker">Add from another product</button><label class="btn btn-sm">Upload image <input type="file" id="ref-upload" accept="image/*" multiple hidden></label><button class="btn btn-sm" id="ref-url">Add from URL</button></div></div>
             <div class="media-grid" id="product-media"></div>
           </section>
 
@@ -132,6 +132,6 @@
     <div id="lightbox-body"></div>
   </dialog>
 
-  <script src="/static/studio/app.js?v=0.5.0"></script>
+  <script src="/static/studio/app.js?v=0.5.1"></script>
 </body>
 </html>

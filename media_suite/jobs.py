@@ -45,6 +45,25 @@ def normalize_image(data: bytes, max_side: int = 2048) -> ImageInput:
     return ImageInput(buf.getvalue(), "image/png")
 
 
+def _check_public_url(url: str):
+    """References may be arbitrary URLs typed by staff; never let the server fetch internal addresses."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise ProviderError(f"unsupported reference URL: {url[:80]}")
+    try:
+        infos = socket.getaddrinfo(u.hostname, None)
+    except socket.gaierror:
+        raise ProviderError(f"cannot resolve {u.hostname}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            if not settings.debug:
+                raise ProviderError(f"reference URL points to a private address: {u.hostname}")
+
+
 def _own_asset_from_url(domain: str, url: str):
     """References may point at this app's own /media/<id>?sig=… links (generated images of other products)."""
     import re
@@ -70,6 +89,7 @@ async def _load_inputs(installation: Installation, job: dict) -> GenerateRequest
                 with open(own["path"], "rb") as f:
                     product_images.append(normalize_image(f.read()))
             else:
+                _check_public_url(url)
                 product_images.append(normalize_image(await api.download(url)))
     for asset_id in inp.get("source_asset_ids", [])[:4]:
         a = db.get_asset(job["domain"], asset_id)
