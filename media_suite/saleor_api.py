@@ -259,7 +259,6 @@ BUILDER_META = """
 query BuilderMeta {
   channels { id name slug currencyCode }
   warehouses(first: 50) { edges { node { id name } } }
-  categories(first: 200) { edges { node { id name parent { name } } } }
   productTypes(first: 100) {
     edges { node {
       id name
@@ -267,6 +266,12 @@ query BuilderMeta {
       assignedVariantAttributes { attribute { id name slug inputType valueRequired choices(first: 100) { edges { node { name } } } } variantSelection }
     } }
   }
+}
+"""
+
+CATEGORIES_PAGE = """
+query BuilderCategories($after: String) {
+  categories(first: 100, after: $after) { pageInfo { hasNextPage endCursor } edges { node { id name parent { name } } } }
 }
 """
 
@@ -317,6 +322,14 @@ def editorjs(paragraphs) -> str:
 class BuilderMixin:
     async def builder_meta(self) -> dict:
         d = await self.execute(BUILDER_META)
+        cats, after = [], None
+        for _ in range(20):   # up to 2000 categories
+            page = (await self.execute(CATEGORIES_PAGE, {"after": after}))["categories"]
+            cats += [e["node"] for e in page["edges"]]
+            if not page["pageInfo"]["hasNextPage"]:
+                break
+            after = page["pageInfo"]["endCursor"]
+        d["categories"] = {"edges": [{"node": c} for c in cats]}
         def attr(a):
             return {"id": a["id"], "name": a["name"], "slug": a["slug"], "inputType": a["inputType"], "valueRequired": a["valueRequired"],
                     "values": [c["node"]["name"] for c in (a.get("choices") or {}).get("edges", [])]}

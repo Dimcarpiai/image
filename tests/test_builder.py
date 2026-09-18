@@ -46,11 +46,14 @@ class FakeSaleor:
             self.calls.append((q.split("(")[0].split()[-1], v))
             if "tokenVerify" in q:
                 return {"data": {"tokenVerify": {"isValid": v["token"] == "staff-jwt", "user": {"id": "U"}}}}
+            if "query BuilderCategories" in q:
+                if v.get("after"):
+                    return {"data": {"categories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "edges": [{"node": {"id": "CAT2", "name": "Trousers", "parent": None}}]}}}
+                return {"data": {"categories": {"pageInfo": {"hasNextPage": True, "endCursor": "c1"}, "edges": [{"node": {"id": "CAT1", "name": "Shirts", "parent": {"name": "Women"}}}]}}}
             if "query BuilderMeta" in q:
                 return {"data": {
                     "channels": [{"id": "CH1", "name": "Germany", "slug": "germany", "currencyCode": "EUR"}],
                     "warehouses": {"edges": [{"node": {"id": "WH1", "name": "Main"}}]},
-                    "categories": {"edges": [{"node": {"id": "CAT1", "name": "Shirts", "parent": {"name": "Women"}}}]},
                     "productTypes": {"edges": [{"node": {"id": "PT1", "name": "Shirt",
                         "productAttributes": [{"id": "A_MAT", "name": "Material", "slug": "material", "inputType": "DROPDOWN", "valueRequired": False, "choices": {"edges": []}}],
                         "assignedVariantAttributes": [
@@ -110,7 +113,7 @@ def test_builder_end_to_end(saleor, monkeypatch):
         r = c.put("/api/builder/settings", headers=H(saleor), json={"defaults": {"brand": "ROS"}, "revalidate_url": saleor.base + "/revalidate", "revalidate_secret": "s3"})
         assert r.status_code == 200
         meta = c.get("/api/builder/meta", headers=H(saleor)).json()
-        assert meta["productTypes"][0]["variantAttributes"][0]["values"] == ["S", "M"] and meta["categories"][0]["path"] == "Women / Shirts"
+        assert meta["productTypes"][0]["variantAttributes"][0]["values"] == ["S", "M"] and [c["path"] for c in meta["categories"]] == ["Women / Shirts", "Trousers"]
         assert meta["llm"]["available"] == ["openai"] and meta["storefront"]["has_secret"]
 
         up = c.post("/api/builder/upload", headers=H(saleor), files={"file": ("supplier.jpg", png((200, 20, 20)), "image/jpeg")})
