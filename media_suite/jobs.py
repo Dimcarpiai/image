@@ -45,6 +45,13 @@ def normalize_image(data: bytes, max_side: int = 2048) -> ImageInput:
     return ImageInput(buf.getvalue(), "image/png")
 
 
+def _own_asset_from_url(domain: str, url: str):
+    """References may point at this app's own /media/<id>?sig=… links (generated images of other products)."""
+    import re
+    m = re.search(r"/media/([0-9a-f]{32})", url or "")
+    return db.get_asset(domain, m.group(1)) if m else None
+
+
 def provider_key(domain: str, provider_id: str) -> str:
     keys = db.get_settings(domain).get("keys", {})
     token = keys.get(provider_id)
@@ -58,7 +65,12 @@ async def _load_inputs(installation: Installation, job: dict) -> GenerateRequest
     product_images: List[ImageInput] = []
     async with SaleorAPI(installation.saleor_api_url, installation.auth_token) as api:
         for url in inp.get("product_image_urls", [])[:4]:
-            product_images.append(normalize_image(await api.download(url)))
+            own = _own_asset_from_url(job["domain"], url)
+            if own:
+                with open(own["path"], "rb") as f:
+                    product_images.append(normalize_image(f.read()))
+            else:
+                product_images.append(normalize_image(await api.download(url)))
     for asset_id in inp.get("source_asset_ids", [])[:4]:
         a = db.get_asset(job["domain"], asset_id)
         if a and a["mime"].startswith("image/"):

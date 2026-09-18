@@ -185,3 +185,25 @@ def test_review_queue_and_pack(saleor, monkeypatch):
         assert r["status"] == "rejected"
         left = c.get("/api/studio/review", headers=H(saleor)).json()
         assert all(a["id"] not in (queue[0]["id"], queue[1]["id"]) for a in left)
+
+
+def test_local_llm_backend_roundtrip():
+    """Drafting through the local server's /llm/chat proxy (OpenAI-compatible)."""
+    from fastapi import FastAPI, Header, Request
+    from media_suite.llm import draft_product
+    from media_suite.providers.base import ImageInput
+    fake = FastAPI(); seen = {}
+
+    @fake.post("/llm/chat")
+    async def chat(request: Request, x_token: str = Header(default="")):
+        body = await request.json(); seen.update(token=x_token, model=body["model"], fmt=body.get("response_format"))
+        assert body["messages"][1]["content"][1]["type"] == "image_url"
+        return {"choices": [{"message": {"content": '```json\n{"name": "Local Polo", "color": "red"}\n```'}}]}
+
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    server = uvicorn.Server(uvicorn.Config(fake, host="127.0.0.1", port=port, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started: time.sleep(0.05)
+    out = asyncio.run(draft_product("local", None, [ImageInput(png())], "cotton", f"http://127.0.0.1:{port}|tok"))
+    server.should_exit = True
+    assert out["name"] == "Local Polo" and seen == {"token": "tok", "model": "gemma3:4b", "fmt": {"type": "json_object"}}

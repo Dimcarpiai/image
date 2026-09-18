@@ -239,3 +239,33 @@ def test_model_photo_job_lands_in_model_library(saleor, monkeypatch):
         assert j["status"] == "done", j
         models = c.get("/api/studio/assets?kind=model", headers=_headers(saleor)).json()
         assert any(m["id"] == j["assets"][0]["id"] for m in models)
+
+
+def test_references_from_other_products_and_own_generated_assets(saleor, monkeypatch):
+    """A job may reference another product's Saleor image URL and this app's own /media/<id> links."""
+    import asyncio
+    from media_suite.providers import PROVIDERS, Output
+    seen = {}
+
+    class FakeProvider:
+        spec = PROVIDERS["openai"].spec
+        async def generate(self, model, req, api_key):
+            seen["n_refs"] = len(req.product_images); await asyncio.sleep(0.02)
+            b = BytesIO(); Image.new("RGB", (64, 64), (1, 1, 1)).save(b, "PNG"); return [Output(b.getvalue(), "image/png")]
+
+    monkeypatch.setitem(PROVIDERS, "openai", FakeProvider())
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=_headers(saleor), json={"provider": "openai", "api_key": "k"})
+        gen = [a for a in c.get("/api/studio/assets?kind=generated", headers=_headers(saleor)).json() if a["mime"].startswith("image/")]
+        assert gen, "needs a generated asset from an earlier test"
+        r = c.post("/api/studio/generate", headers=_headers(saleor), json={
+            "mode": "scene", "provider": "openai", "model": "gpt-image-2", "product_id": "P1", "prompt": "x",
+            "product_image_urls": [saleor.base + "/media/other-product.png", "http://testserver" + gen[0]["url"]]})
+        assert r.status_code == 200, r.text
+        jid = r.json()["id"]
+        for _ in range(50):
+            j = c.get(f"/api/studio/jobs/{jid}", headers=_headers(saleor)).json()
+            if j["status"] in ("done", "error"): break
+            time.sleep(0.1)
+        assert j["status"] == "done", j
+        assert seen["n_refs"] == 2

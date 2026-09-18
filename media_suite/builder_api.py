@@ -22,9 +22,9 @@ router = APIRouter(prefix="/api/builder", tags=["builder"])
 def _llm_choice(domain: str) -> tuple:
     st = db.get_settings(domain)
     keys = st.get("keys", {})
-    provider = st.get("llm", {}).get("provider") or ("openai" if keys.get("openai") else "gemini" if keys.get("gemini") else "")
+    provider = st.get("llm", {}).get("provider") or next((p for p in ("openai", "gemini", "local") if keys.get(p)), "")
     if not provider or not keys.get(provider):
-        raise HTTPException(status_code=400, detail="AI drafting needs an OpenAI or Gemini key (AI Studio → API keys)")
+        raise HTTPException(status_code=400, detail="AI drafting needs an OpenAI, Gemini or Local GPU key (AI Studio → API keys)")
     return provider, st.get("llm", {}).get("model") or DEFAULT_MODELS[provider]
 
 
@@ -60,7 +60,7 @@ async def meta(shop: Installation = Depends(current_shop)):
     st = db.get_settings(shop.domain)
     data["defaults"] = st.get("builder_defaults", {})
     data["llm"] = {"provider": st.get("llm", {}).get("provider", ""), "model": st.get("llm", {}).get("model", ""),
-                   "available": [p for p in ("openai", "gemini") if st.get("keys", {}).get(p)]}
+                   "available": [p for p in ("openai", "gemini", "local") if st.get("keys", {}).get(p)]}
     data["storefront"] = {"revalidate_url": st.get("storefront", {}).get("revalidate_url", ""),
                           "has_secret": bool(st.get("storefront", {}).get("revalidate_secret"))}
     return data

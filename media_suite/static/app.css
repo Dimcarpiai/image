@@ -227,3 +227,9 @@ button, input, select { font: inherit; color: inherit; }
 #matrix tr.off { opacity: .45; }
 #matrix select { font-size: 13px; padding: 4px; border: 1px solid var(--border); border-radius: 4px; }
 @media (max-width: 900px) { .row2, .row3 { grid-template-columns: 1fr; } }
+
+/* ---- cross-product image picker ---- */
+.picker { width: min(960px, 92vw); }
+.picker-body { max-height: 70vh; overflow: auto; }
+.picker .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.tile .src { position: absolute; bottom: 34px; left: 0; right: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

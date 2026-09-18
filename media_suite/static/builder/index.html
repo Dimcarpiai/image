@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Product Builder</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.4.0">
+  <link rel="stylesheet" href="/static/app.css?v=0.4.3">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -18,7 +18,7 @@
       <div class="gen-form">
         <div class="row3">
           <label>AI for drafting <select id="llm-provider"></select></label>
-          <label>Model name <span class="hint">leave empty for default</span><input id="llm-model" placeholder="e.g. gpt-5-mini / gemini-3.1-flash"></label>
+          <label>Model name <span class="hint">leave empty for default</span><input id="llm-model" placeholder="e.g. gpt-5-mini / gemini-3.1-flash / gemma3:4b"></label>
           <label>SKU pattern <span class="hint">{brand} {style} {color:3} {size}</span><input id="sku-pattern" value="{brand}-{style}-{color:3}-{size}"></label>
         </div>
         <div class="row3">
@@ -105,6 +105,6 @@
   </main>
 
   <div id="waiting" class="waiting"><p>Connecting to the Saleor dashboard…</p><p class="muted">Open this page from Catalog → Product Builder.</p></div>
-  <script src="/static/builder/app.js?v=0.4.0"></script>
+  <script src="/static/builder/app.js?v=0.4.3"></script>
 </body>
 </html>

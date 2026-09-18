@@ -9,6 +9,7 @@
     product: null,               // selected product
     selectedMedia: new Set(),    // product media ids used as reference
     selectedAssets: new Set(),   // generated asset ids used as reference
+    extraRefs: new Map(),        // url -> {thumb, label}: images borrowed from other products
     mode: "scene",
     modelPhotos: [], modelPhotoId: null,
     jobs: [], pollTimer: null, presets: [],
@@ -103,7 +104,7 @@
   $("#load-more").addEventListener("click", () => loadProducts(false));
 
   async function selectProduct(p) {
-    state.product = p; state.selectedMedia = new Set(p.media.slice(0, 1).map((m) => m.id)); state.selectedAssets = new Set();
+    state.product = p; state.selectedMedia = new Set(p.media.slice(0, 1).map((m) => m.id)); state.selectedAssets = new Set(); state.extraRefs = new Map();
     renderProductList();
     $("#empty-state").hidden = true; $("#workspace").hidden = false;
     $("#product-title").textContent = p.name; $("#product-sub").textContent = p.category || "";
@@ -122,7 +123,31 @@
       grid.append(el("div", { class: `tile${sel ? " selected" : ""}`, onclick: () => { sel ? state.selectedAssets.delete(a.id) : state.selectedAssets.add(a.id); renderProductMedia(); } },
         el("img", { src: a.url, alt: "" }), sel ? el("span", { class: "check" }, "✓") : null, el("div", { class: "cap" }, "generated · " + (a.meta?.provider || ""))));
     }
+    for (const [url, r] of state.extraRefs) {
+      grid.append(el("div", { class: "tile selected", onclick: () => { state.extraRefs.delete(url); renderProductMedia(); } },
+        el("img", { src: r.thumb, alt: "" }), el("span", { class: "check" }, "✓"), el("span", { class: "src" }, r.label), el("div", { class: "cap" }, "from another product")));
+    }
     if (!grid.children.length) grid.append(el("p", { class: "muted" }, "This product has no images yet — upload one in the product page first."));
+  }
+
+  // ---- picker: images from other products ----------------------------------
+  $("#open-picker").addEventListener("click", () => { $("#picker").showModal(); $("#picker-search").value = ""; loadPicker(""); });
+  let pickerTimer;
+  $("#picker-search").addEventListener("input", (e) => { clearTimeout(pickerTimer); pickerTimer = setTimeout(() => loadPicker(e.target.value.trim()), 300); });
+  async function loadPicker(search) {
+    const grid = $("#picker-grid"); grid.replaceChildren(el("p", { class: "muted" }, "Loading…"));
+    try {
+      const [page, generated] = await Promise.all([api(`/api/studio/products?${new URLSearchParams({ search, first: "30" })}`), search ? Promise.resolve([]) : api("/api/studio/assets?kind=generated")]);
+      grid.replaceChildren();
+      const add = (url, thumb, label) => {
+        const on = state.extraRefs.has(url);
+        grid.append(el("div", { class: `tile${on ? " selected" : ""}`, onclick: (e) => { state.extraRefs.has(url) ? state.extraRefs.delete(url) : state.extraRefs.set(url, { thumb, label }); e.currentTarget.classList.toggle("selected"); renderProductMedia(); } },
+          el("img", { src: thumb, alt: "", loading: "lazy" }), state.extraRefs.has(url) ? el("span", { class: "check" }, "✓") : null, el("div", { class: "cap", title: label }, label)));
+      };
+      for (const p of page.items) { if (state.product && p.id === state.product.id) continue; for (const m of p.media) add(m.url, m.thumb, p.name); }
+      for (const a of generated.filter((g) => g.mime.startsWith("image/") && g.product_id !== state.product?.id)) add(location.origin + a.url, a.url, "generated · " + (a.meta?.preset || a.meta?.provider || ""));
+      if (!grid.children.length) grid.append(el("p", { class: "muted" }, "No images found."));
+    } catch (e) { grid.replaceChildren(el("p", { class: "muted" }, e.message)); }
   }
 
   // ---- mode / provider / model -------------------------------------------
@@ -196,7 +221,7 @@
     const body = {
       mode: state.mode, provider: $("#provider").value, model: $("#model").value, product_id: p ? p.id : null,
       prompt: $("#prompt").value.trim(),
-      product_image_urls: p ? p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url) : [],
+      product_image_urls: [...(p ? p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url) : []), ...state.extraRefs.keys()],
       source_asset_ids: [...state.selectedAssets], model_asset_id: state.mode === "tryon" ? state.modelPhotoId : null, options,
     };
     if (state.mode === "scene" && !body.prompt) return notify("error", "AI Studio", "Write a prompt describing the scene.");
@@ -282,7 +307,7 @@
   });
   $("#generate-pack").addEventListener("click", async () => {
     const p = state.product; if (!p) return notify("error", "AI Studio", "Pick a product first.");
-    const body = { product_id: p.id, product_image_urls: p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url), model_asset_id: state.modelPhotoId };
+    const body = { product_id: p.id, product_image_urls: [...p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url), ...state.extraRefs.keys()], model_asset_id: state.modelPhotoId };
     if (!body.product_image_urls.length) return notify("error", "AI Studio", "Tick at least one product image.");
     try {
       const r = await api("/api/studio/pack", { method: "POST", body: JSON.stringify(body) });

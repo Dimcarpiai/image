@@ -8,7 +8,7 @@ import aiohttp
 
 from .providers.base import ImageInput, ProviderError
 
-DEFAULT_MODELS = {"openai": "gpt-5-mini", "gemini": "gemini-3.1-flash"}
+DEFAULT_MODELS = {"openai": "gpt-5-mini", "gemini": "gemini-3.1-flash", "local": "gemma3:4b"}
 
 DRAFT_SYSTEM = (
     "You are a merchandiser for an online fashion store. From the product photos and hints, produce product data as JSON. "
@@ -68,12 +68,34 @@ async def _gemini(model: str, system: str, user_text: str, images: List[ImageInp
         raise ProviderError(f"Gemini returned no text: {str(data)[:200]}")
 
 
-BACKENDS = {"openai": _openai, "gemini": _gemini}
+async def _local(model: str, system: str, user_text: str, images: List[ImageInput], api_key: str, json_mode: bool) -> str:
+    """Ollama behind the local try-on server (OpenAI-compatible chat; key is 'url|token')."""
+    from .providers.local_provider import parse_key
+    url, token = parse_key(api_key)
+    content = [{"type": "text", "text": user_text}] + [{"type": "image_url", "image_url": {"url": img.data_uri()}} for img in images[:2]]
+    body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}], "temperature": 0.3}
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as s:
+        try:
+            async with s.post(f"{url}/llm/chat", json=body, headers={"X-Token": token}) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    raise ProviderError(f"local LLM: {str(data.get('detail') or data)[:300]}")
+        except aiohttp.ClientError as exc:
+            raise ProviderError(f"cannot reach the local server at {url}: {exc}")
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError):
+        raise ProviderError(f"local LLM returned no text: {str(data)[:200]}")
+
+
+BACKENDS = {"openai": _openai, "gemini": _gemini, "local": _local}
 
 
 async def draft_product(provider: str, model: Optional[str], images: List[ImageInput], hints: str, api_key: str) -> dict:
     if provider not in BACKENDS:
-        raise ProviderError("drafting needs an OpenAI or Gemini key")
+        raise ProviderError("drafting needs an OpenAI, Gemini or Local GPU key")
     text = await BACKENDS[provider](model or DEFAULT_MODELS[provider], DRAFT_SYSTEM,
                                     f"Hints from the merchandiser: {hints or 'none'}. Produce the JSON now.", images, api_key, True)
     return _json_from_text(text)

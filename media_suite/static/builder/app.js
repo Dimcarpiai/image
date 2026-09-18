@@ -40,7 +40,8 @@
   function fillSettings() {
     const m = state.meta; const d = m.defaults || {};
     const sel = $("#llm-provider"); sel.replaceChildren();
-    for (const p of ["openai", "gemini"]) sel.append(el("option", { value: p, disabled: !m.llm.available.includes(p) }, p === "openai" ? "OpenAI" : "Google Gemini" + (m.llm.available.includes(p) ? "" : " (no key)")));
+    const names = { openai: "OpenAI", gemini: "Google Gemini", local: "Local GPU (Ollama)" };
+    for (const p of ["openai", "gemini", "local"]) sel.append(el("option", { value: p, disabled: !m.llm.available.includes(p) }, names[p] + (m.llm.available.includes(p) ? "" : " (no key)")));
     sel.value = m.llm.provider || m.llm.available[0] || "openai";
     $("#llm-model").value = m.llm.model || "";
     $("#sku-pattern").value = d.sku_pattern || "{brand}-{style}-{color:3}-{size}";
