@@ -43,6 +43,12 @@ class FakeSaleor:
                 return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt", "category": {"name": "Shirts"}, "productType": {"name": "Shirt"},
                     "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}, {"attribute": {"name": "Material", "slug": "material"}, "values": [{"name": "Cotton"}]}],
                     "media": [{"id": "M1", "alt": "", "type": "IMAGE", "url": self.base + "/media/front.png", "thumb": self.base + "/media/front.png"}]}}}
+            if "query SkuVariants" in q:
+                return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt", "slug": "rugby-shirt", "category": {"name": "Shirts"},
+                    "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}],
+                    "variants": [{"id": "V1", "sku": "R-BUR-S", "name": "S", "attributes": [{"attribute": {"name": "Size", "slug": "size"}, "values": [{"name": "S"}]}]},
+                                 {"id": "V2", "sku": "R-NAV-S", "name": "S", "attributes": [{"attribute": {"name": "Size", "slug": "size"}, "values": [{"name": "S"}]}, {"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Navy"}]}]},
+                                 {"id": "V3", "sku": "", "name": "", "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Green"}]}]}]}}}
             if "query StudioVariants" in q:
                 return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt", "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}],
                     "variants": [{"id": "V1", "sku": "R-BUR-S", "name": "S", "attributes": [{"attribute": {"name": "Size", "slug": "size"}, "values": [{"name": "S"}]}, {"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}], "media": []},
@@ -188,3 +194,17 @@ def test_pose_aware_provider_and_background_actions(saleor, monkeypatch):
         assert (r3["provider"], r3["model"]) == ("stability", "remove-bg") and (r4["provider"], r4["model"]) == ("stability", "relight")
         wait_done(c, saleor)
         assert any(call["options"].get("background_prompt", "").startswith("warm beige") for call in stab.calls)
+
+
+def test_sku_generation_and_qr(saleor):
+    from PIL import Image as _I
+    with TestClient(app) as c:
+        c.put("/api/builder/settings", headers=H(saleor), json={"defaults": {"sku_pattern": "{brand}-{style}-{color:3}-{size}", "brand": "ROS"}})
+        r = c.post("/api/studio/skus", headers=H(saleor), json={"product_id": "P1", "apply": False}).json()
+        assert [x["sku"] for x in r["rows"]] == ["ROS-RUGB-BUR-S", "ROS-RUGB-NAV-S", "ROS-RUGB-GRE"]
+        assert r["applied"] == 0
+        c.put("/api/studio/storefront-url", headers=H(saleor), json={"product_url": "https://rostau.de/p/{slug}?variant={sku}"})
+        q = c.get("/api/studio/qr/product/P1", headers=H(saleor)).json()
+        assert q["items"][0]["url"] == "https://rostau.de/p/rugby-shirt" and q["items"][1]["url"] == "https://rostau.de/p/rugby-shirt?variant=R-BUR-S"
+        png_resp = c.get("/api/studio/qr", headers=H(saleor), params={"url": q["items"][1]["url"], "label": "R-BUR-S"})
+        assert png_resp.status_code == 200 and _I.open(BytesIO(png_resp.content)).size == (512, 556)

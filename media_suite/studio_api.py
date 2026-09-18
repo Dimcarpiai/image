@@ -679,7 +679,7 @@ class StorefrontSettings(BaseModel):
 @router.get("/storefront")
 async def get_storefront(shop: Installation = Depends(current_shop)):
     st = db.get_settings(shop.domain).get("storefront", {})
-    return {"revalidate_url": st.get("revalidate_url", ""), "has_secret": bool(st.get("revalidate_secret"))}
+    return {"revalidate_url": st.get("revalidate_url", ""), "has_secret": bool(st.get("revalidate_secret")), "product_url": st.get("product_url", "")}
 
 
 @router.put("/storefront")

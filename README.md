@@ -51,6 +51,10 @@ Optional fifth provider **Local GPU (CatVTON)**: point it at your own try-on ser
     their product and variant). **Bulk**: one action for all selected products. **Looks**: collection consistency
     (same model, background, pose, locks). **Quality check** (Ready / Needs review + issue) via the vision LLM.
     **Version history** V1/V2/V3 per image with *Use as source*.
+- **1.1.0 — SKUs & QR codes.** Edit details → *Generate SKUs* fills every variant from the pattern in Settings
+  (`{brand}-{style}-{color:3}-{size}`, duplicates suffixed); *QR codes* shows a QR per product and per variant built from
+  the storefront URL pattern (`https://shop/p/{slug}?variant={sku}`), downloadable as PNG with the SKU printed under it.
+  API: `POST /api/studio/skus`, `GET /api/studio/qr?url=…&label=…`, `GET /api/studio/qr/product/{id}`.
 - **0.9.0 — throughput features & new layout.** AI Studio is now four tabs: *Studio* (products with bulk selection,
   references, generation, results), *Review* (queue with Approve / Main / Other product / Reject and a keyboard
   *Compare view*: ← → A M R), *Library*, *Settings*. Plus:

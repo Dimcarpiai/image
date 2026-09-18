@@ -9,3 +9,4 @@ pillow>=11.3
 python-multipart
 cryptography
 gunicorn
+qrcode[pil]
