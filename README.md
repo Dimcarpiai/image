@@ -24,6 +24,10 @@ Optional fifth provider **Local GPU (CatVTON)**: point it at your own try-on ser
   marked ★ for the selected product (default pack: studio-white relight, lifestyle scene, on-model FASHN).
 - **Review queue** (AI Studio) — generated images wait for approval; *Approve* attaches them to the product,
   *Reject* deletes them. Nothing is attached automatically.
+- **Clone product** (AI Studio, 0.5.0) — from a generated image: *Clone product…* creates a new Saleor product as a copy
+  of the current one (type, category, attributes, description, channels, variants, prices) with a new name, new colour
+  value (product + variants), colour code swapped in the SKUs (`ROS-POLO-BUR-S` → `ROS-POLO-NAV-S`), stock 0 unless copied,
+  and the image attached. *Add to another product…* attaches a generated image to any existing product.
 - **Storefront revalidation** — Builder settings → *Storefront revalidate URL* (+ secret). The app POSTs
   `{"productId", "slug", "reason", "secret"}` with `Authorization: Bearer <secret>` after a product is created,
   an image is approved/attached, or the optimizer changed media, so cached storefront pages refresh.

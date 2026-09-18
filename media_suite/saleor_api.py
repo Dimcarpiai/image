@@ -380,3 +380,32 @@ class BuilderMixin:
 for _name, _fn in vars(BuilderMixin).items():
     if callable(_fn) and not _name.startswith("__"):
         setattr(SaleorAPI, _name, _fn)
+
+
+# --------------------------------------------------------------------------
+# Clone a product (colourway workflow)
+# --------------------------------------------------------------------------
+PRODUCT_FULL = """
+query CloneSource($id: ID!) {
+  product(id: $id) {
+    id name description seoTitle seoDescription weight { unit value }
+    productType { id }
+    category { id }
+    attributes { attribute { id name inputType } values { name plainText } }
+    channelListings { channel { id } isPublished visibleInListings isAvailableForPurchase }
+    variants {
+      sku name trackInventory
+      attributes { attribute { id name inputType } values { name plainText } }
+      channelListings { channel { id } price { amount } }
+      stocks { warehouse { id } quantity }
+    }
+  }
+}
+"""
+
+
+async def _product_full(self, product_id: str) -> Optional[dict]:
+    return (await self.execute(PRODUCT_FULL, {"id": product_id})).get("product")
+
+
+SaleorAPI.product_full = _product_full

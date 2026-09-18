@@ -259,6 +259,7 @@
             j.mode === "model" ? el("button", { class: "btn btn-sm btn-primary", onclick: () => { state.modelPhotoId = a.id; state.mode = "tryon"; renderModeTabs(); renderModelPhotos(); } }, "Use for try-on")
               : isVideo ? null : el("button", { class: "btn btn-sm btn-primary", onclick: () => attach(a, j) }, "Add to product"),
             (j.mode === "model" || isVideo) ? null : el("button", { class: "btn btn-sm", onclick: () => chooseProduct((target) => attachTo(a, j, target)) }, "Add to another product…"),
+            (j.mode === "model" || isVideo) ? null : el("button", { class: "btn btn-sm", onclick: () => openClone([a]) }, "Clone product…"),
             el("a", { class: "btn btn-sm", href: a.url, download: `ai-studio-${a.id.slice(0, 8)}.${a.mime.split("/")[1]}` }, "Download"),
             el("button", { class: "btn btn-sm", onclick: async () => { await api(`/api/studio/assets/${a.id}`, { method: "DELETE" }); loadJobs(); } }, "Delete"))));
       }
@@ -318,6 +319,19 @@
   });
   const _renderModeTabs = renderModeTabs;
   renderModeTabs = function () { _renderModeTabs(); renderPresets(); };
+
+  function openClone(assets) {
+    if (!state.product) return notify("error", "AI Studio", "Pick the source product first.");
+    const dlg = $("#clone-dialog"); $("#clone-name").value = state.product.name + " – "; $("#clone-color").value = ""; $("#clone-suffix").value = ""; $("#clone-msg").textContent = `${assets.length} image(s) will be attached.`;
+    $("#clone-go").onclick = async () => {
+      const btn = $("#clone-go"); btn.disabled = true; $("#clone-msg").textContent = "Creating…";
+      try {
+        const r = await api("/api/studio/clone", { method: "POST", body: JSON.stringify({ source_product_id: state.product.id, name: $("#clone-name").value.trim(), color: $("#clone-color").value.trim(), sku_suffix: $("#clone-suffix").value.trim(), asset_ids: assets.map((x) => x.id), copy_stock: $("#clone-stock").checked }) });
+        dlg.close(); notify("success", "AI Studio", `Created "${r.product.name}" — ${r.steps.join(", ")}`); await loadProducts(true); await loadJobs();
+      } catch (e) { $("#clone-msg").textContent = e.message; } finally { btn.disabled = false; }
+    };
+    dlg.showModal(); $("#clone-name").focus();
+  }
 
   async function attachTo(a, j, target) {
     try {

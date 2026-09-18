@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.4.4">
+  <link rel="stylesheet" href="/static/app.css?v=0.5.0">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -113,11 +113,25 @@
     </div>
   </dialog>
 
+  <dialog id="clone-dialog" class="lightbox">
+    <form method="dialog" class="preview-head"><h2>Clone product with this image</h2><button class="btn btn-quiet">Cancel</button></form>
+    <div class="gen-form" style="width:min(640px,88vw)">
+      <p class="muted">Creates a new product as a copy of the current one (type, category, attributes, description, channels, variants, prices) with the image(s) attached.</p>
+      <label>New product name <input id="clone-name"></label>
+      <div class="row2">
+        <label>New colour <span class="hint">replaces the colour attribute on product & variants</span><input id="clone-color" placeholder="e.g. Navy"></label>
+        <label>SKU suffix <span class="hint">optional, e.g. NAV</span><input id="clone-suffix"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="clone-stock"> Copy stock quantities (otherwise 0)</label>
+      <div class="between"><span class="muted" id="clone-msg"></span><button class="btn btn-primary" id="clone-go">Create product</button></div>
+    </div>
+  </dialog>
+
   <dialog id="lightbox" class="lightbox">
     <form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form>
     <div id="lightbox-body"></div>
   </dialog>
 
-  <script src="/static/studio/app.js?v=0.4.4"></script>
+  <script src="/static/studio/app.js?v=0.5.0"></script>
 </body>
 </html>

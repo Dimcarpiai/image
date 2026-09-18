@@ -16,6 +16,7 @@ from .jobs import asset_dir, start_job
 from .providers import PROVIDERS, catalog, find_model
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .storefront import notify_storefront
+from .clone import clone_product
 
 router = APIRouter(prefix="/api/studio", tags=["studio"])
 
@@ -312,3 +313,36 @@ async def attach(body: AttachBody, shop: Installation = Depends(current_shop)):
     db.set_asset_meta(shop.domain, asset["id"], {"status": "approved", "media_id": media["id"]})
     await notify_storefront(shop.domain, body.product_id, "", "media-attached")
     return {"media": media}
+
+
+# -- clone product with generated images (colourway) --------------------------
+class CloneBody(BaseModel):
+    source_product_id: str
+    name: str
+    color: str = ""
+    sku_suffix: str = ""
+    asset_ids: List[str] = []
+    copy_stock: bool = False
+
+
+@router.post("/clone")
+async def clone(body: CloneBody, shop: Installation = Depends(current_shop)):
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="name is required")
+    images = []
+    for aid in body.asset_ids:
+        a = db.get_asset(shop.domain, aid)
+        if not a or not a["mime"].startswith("image/"):
+            raise HTTPException(status_code=404, detail=f"image {aid} not found")
+        with open(a["path"], "rb") as f:
+            images.append((f.read(), a["mime"]))
+    try:
+        async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+            result = await clone_product(api, body.source_product_id, body.name.strip(), body.color.strip(), body.sku_suffix.strip(),
+                                         images, body.copy_stock, alt=f"{body.name.strip()} {body.color.strip()}".strip())
+    except SaleorAPIError as exc:
+        raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
+    for aid in body.asset_ids:
+        db.set_asset_meta(shop.domain, aid, {"status": "approved", "cloned_to": result["product"]["id"]})
+    await notify_storefront(shop.domain, result["product"]["id"], result["product"].get("slug", ""), "product-cloned")
+    return result

@@ -71,6 +71,8 @@ class FakeSaleor:
                 self.assigned = v; return {"data": {"variantMediaAssign": {"errors": []}}}
             if "productTranslate" in q:
                 self.translation = v; return {"data": {"productTranslate": {"errors": []}}}
+            if "query CloneSource" in q:
+                return {"data": {"product": getattr(self, "clone_source", None)}}
             if "query ProductMedia" in q:
                 return {"data": {"product": {"id": "P1", "name": "Polo", "media": []}}}
             return {"errors": [{"message": "unhandled " + q[:40]}]}
@@ -207,3 +209,29 @@ def test_local_llm_backend_roundtrip():
     out = asyncio.run(draft_product("local", None, [ImageInput(png())], "cotton", f"http://127.0.0.1:{port}|tok"))
     server.should_exit = True
     assert out["name"] == "Local Polo" and seen == {"token": "tok", "model": "gemma3:4b", "fmt": {"type": "json_object"}}
+
+
+def test_clone_product_colourway(saleor):
+    src = {"id": "P1", "name": "Polo Burgundy", "description": '{"blocks":[]}', "seoTitle": "Polo", "seoDescription": "d", "weight": {"unit": "KG", "value": 0.3},
+           "productType": {"id": "PT1"}, "category": {"id": "CAT1"},
+           "attributes": [{"attribute": {"id": "A_MAT", "name": "Material", "inputType": "DROPDOWN"}, "values": [{"name": "Cotton"}]}],
+           "channelListings": [{"channel": {"id": "CH1"}, "isPublished": True, "visibleInListings": True, "isAvailableForPurchase": True}],
+           "variants": [
+               {"sku": "ROS-POLO-BUR-S", "name": "S", "trackInventory": True,
+                "attributes": [{"attribute": {"id": "A_SIZE", "name": "Size", "inputType": "DROPDOWN"}, "values": [{"name": "S"}]},
+                               {"attribute": {"id": "A_COL", "name": "Colour", "inputType": "DROPDOWN"}, "values": [{"name": "Burgundy"}]}],
+                "channelListings": [{"channel": {"id": "CH1"}, "price": {"amount": 49.0}}], "stocks": [{"warehouse": {"id": "WH1"}, "quantity": 5}]}]}
+    saleor.clone_source = src
+
+    with TestClient(app) as c:
+        gen = c.get("/api/studio/assets?kind=generated", headers=H(saleor)).json()
+        r = c.post("/api/studio/clone", headers=H(saleor), json={"source_product_id": "P1", "name": "Polo Navy", "color": "Navy", "sku_suffix": "", "asset_ids": [gen[0]["id"]] if gen else []})
+        assert r.status_code == 200, r.text
+        out = r.json()
+        assert out["product"]["id"] == "PNEW" and out["old_color"] == "Burgundy"
+        assert saleor.product_input["name"] == "Polo Navy" and saleor.product_input["category"] == "CAT1"
+        assert saleor.variants[0]["sku"] == "ROS-POLO-NAV-S"
+        assert {"id": "A_COL", "dropdown": {"value": "Navy"}} in saleor.variants[0]["attributes"]
+        assert saleor.variants[0]["stocks"] == [{"warehouse": "WH1", "quantity": 0}]
+        assert saleor.variants[0]["channelListings"] == [{"channelId": "CH1", "price": 49.0}]
+        assert saleor.revalidations[-1]["body"]["reason"] == "product-cloned"
