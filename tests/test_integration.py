@@ -269,3 +269,22 @@ def test_references_from_other_products_and_own_generated_assets(saleor, monkeyp
             time.sleep(0.1)
         assert j["status"] == "done", j
         assert seen["n_refs"] == 2
+
+
+
+def test_page_images_and_import(saleor):
+    """Fetch a page served by the fake server, list its images, import one as an upload asset."""
+    from fastapi.responses import HTMLResponse
+    @saleor.app.get("/pin")
+    async def pin():
+        return HTMLResponse(f'<html><head><meta property="og:image" content="{saleor.base}/media/hero.png"></head><body><img src="/media/second.png"></body></html>')
+    with TestClient(app) as c:
+        r = c.post("/api/studio/page-images", headers=_headers(saleor), json={"url": saleor.base + "/pin"})
+        assert r.status_code == 200, r.text
+        imgs = r.json()["images"]
+        assert imgs[0].endswith("/media/hero.png") and any(u.endswith("/media/second.png") for u in imgs)
+        r = c.post("/api/studio/import-urls", headers=_headers(saleor), json={"urls": [imgs[0], saleor.base + "/nope"]})
+        out = r.json()
+        assert len(out["assets"]) == 1 and out["assets"][0]["kind"] == "upload" and out["assets"][0]["meta"]["source_url"] == imgs[0]
+        assert len(out["errors"]) == 1
+        assert c.get(out["assets"][0]["url"]).status_code == 200

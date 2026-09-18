@@ -139,12 +139,39 @@
     }
     e.target.value = ""; renderProductMedia();
   });
-  $("#ref-url").addEventListener("click", () => {
-    const url = (prompt("Image URL (https://…):") || "").trim();
-    if (!url) return;
-    if (!/^https?:\/\//i.test(url)) return notify("error", "AI Studio", "The URL must start with http:// or https://");
-    state.extraRefs.set(url, { thumb: url, label: new URL(url).hostname }); renderProductMedia();
+  // ---- page importer (Pinterest pins, supplier pages, direct image URLs) ------
+  const pageSel = new Set();
+  $("#ref-url").addEventListener("click", () => { $("#page-picker").showModal(); $("#page-url").focus(); });
+  $("#page-url").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#page-go").click(); });
+  $("#page-go").addEventListener("click", async () => {
+    const url = $("#page-url").value.trim(); if (!url) return;
+    const grid = $("#page-grid"); grid.replaceChildren(el("p", { class: "muted" }, "Fetching…")); pageSel.clear(); $("#page-count").textContent = "";
+    try {
+      const r = await api("/api/studio/page-images", { method: "POST", body: JSON.stringify({ url }) });
+      grid.replaceChildren();
+      for (const u of r.images) {
+        const tile = el("div", { class: "tile" },
+          el("img", { src: u, alt: "", loading: "lazy", referrerpolicy: "no-referrer", onerror: (e) => { e.target.closest(".tile").remove(); } }),
+          el("div", { class: "actions" }, el("button", { class: "btn btn-sm btn-primary", onclick: async (e) => { e.stopPropagation(); await importUrls([u], true); } }, "Clone product with this")));
+        tile.addEventListener("click", (e) => { if (e.target.tagName === "BUTTON") return; pageSel.has(u) ? pageSel.delete(u) : pageSel.add(u); tile.classList.toggle("selected"); $("#page-count").textContent = `${pageSel.size} selected`; });
+        grid.append(tile);
+      }
+      $("#page-msg").textContent = `${r.images.length} image(s) found. Tick to import, or "Clone product with this" on one of them.`;
+    } catch (e) { grid.replaceChildren(el("p", { class: "muted" }, e.message)); }
   });
+  $("#page-import").addEventListener("click", () => importUrls([...pageSel], false));
+  async function importUrls(urls, cloneAfter) {
+    if (!urls.length) return notify("error", "AI Studio", "Tick at least one image.");
+    $("#page-msg").textContent = "Importing…";
+    try {
+      const r = await api("/api/studio/import-urls", { method: "POST", body: JSON.stringify({ urls }) });
+      for (const a of r.assets) state.extraRefs.set(location.origin + a.url, { thumb: a.url, label: "imported" });
+      renderProductMedia();
+      if (r.errors.length) notify("error", "AI Studio", r.errors.map((e) => e.error).join("; "));
+      $("#page-msg").textContent = `${r.assets.length} imported.`;
+      if (cloneAfter && r.assets.length) { $("#page-picker").close(); openClone(r.assets, true); }
+    } catch (e) { $("#page-msg").textContent = e.message; }
+  }
 
   // ---- picker: images from other products ----------------------------------
   $("#open-picker").addEventListener("click", () => { $("#picker").showModal(); $("#picker-search").value = ""; loadPicker(""); });
@@ -336,13 +363,18 @@
   const _renderModeTabs = renderModeTabs;
   renderModeTabs = function () { _renderModeTabs(); renderPresets(); };
 
-  function openClone(assets) {
+  $("#clone-product").addEventListener("click", () => {
+    const ticked = state.jobs.flatMap((j) => j.assets).filter((a) => state.selectedAssets.has(a.id) && a.mime.startsWith("image/"));
+    openClone(ticked, true);
+  });
+  function openClone(assets, fromHeader = false) {
     if (!state.product) return notify("error", "AI Studio", "Pick the source product first.");
-    const dlg = $("#clone-dialog"); $("#clone-name").value = state.product.name + " – "; $("#clone-color").value = ""; $("#clone-suffix").value = ""; $("#clone-msg").textContent = `${assets.length} image(s) will be attached.`;
+    const dlg = $("#clone-dialog"); $("#clone-name").value = state.product.name + " – "; $("#clone-color").value = ""; $("#clone-suffix").value = "";
+    $("#clone-images").checked = fromHeader; $("#clone-msg").textContent = assets.length ? `${assets.length} generated image(s) will be attached.` : "Tick generated images above to attach them as well.";
     $("#clone-go").onclick = async () => {
       const btn = $("#clone-go"); btn.disabled = true; $("#clone-msg").textContent = "Creating…";
       try {
-        const r = await api("/api/studio/clone", { method: "POST", body: JSON.stringify({ source_product_id: state.product.id, name: $("#clone-name").value.trim(), color: $("#clone-color").value.trim(), sku_suffix: $("#clone-suffix").value.trim(), asset_ids: assets.map((x) => x.id), copy_stock: $("#clone-stock").checked }) });
+        const r = await api("/api/studio/clone", { method: "POST", body: JSON.stringify({ source_product_id: state.product.id, name: $("#clone-name").value.trim(), color: $("#clone-color").value.trim(), sku_suffix: $("#clone-suffix").value.trim(), asset_ids: assets.map((x) => x.id), copy_stock: $("#clone-stock").checked, copy_source_images: $("#clone-images").checked }) });
         dlg.close(); notify("success", "AI Studio", `Created "${r.product.name}" — ${r.steps.join(", ")}`); await loadProducts(true); await loadJobs();
       } catch (e) { $("#clone-msg").textContent = e.message; } finally { btn.disabled = false; }
     };

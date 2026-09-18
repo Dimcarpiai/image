@@ -17,6 +17,9 @@ from .providers import PROVIDERS, catalog, find_model
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .storefront import notify_storefront
 from .clone import clone_product
+from .scrape import fetch_page_images
+from .jobs import normalize_image, _check_public_url
+from .providers.base import ProviderError
 
 router = APIRouter(prefix="/api/studio", tags=["studio"])
 
@@ -323,6 +326,7 @@ class CloneBody(BaseModel):
     sku_suffix: str = ""
     asset_ids: List[str] = []
     copy_stock: bool = False
+    copy_source_images: bool = False
 
 
 @router.post("/clone")
@@ -339,10 +343,56 @@ async def clone(body: CloneBody, shop: Installation = Depends(current_shop)):
     try:
         async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
             result = await clone_product(api, body.source_product_id, body.name.strip(), body.color.strip(), body.sku_suffix.strip(),
-                                         images, body.copy_stock, alt=f"{body.name.strip()} {body.color.strip()}".strip())
+                                         images, body.copy_stock, alt=f"{body.name.strip()} {body.color.strip()}".strip(),
+                                         copy_source_images=body.copy_source_images)
     except SaleorAPIError as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
     for aid in body.asset_ids:
         db.set_asset_meta(shop.domain, aid, {"status": "approved", "cloned_to": result["product"]["id"]})
     await notify_storefront(shop.domain, result["product"]["id"], result["product"].get("slug", ""), "product-cloned")
     return result
+
+
+# -- import images from a web page / URL ---------------------------------------
+class PageBody(BaseModel):
+    url: str
+
+
+@router.post("/page-images")
+async def page_images(body: PageBody, shop: Installation = Depends(current_shop)):
+    try:
+        return {"images": await fetch_page_images(body.url.strip())}
+    except ProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"could not fetch page: {exc}")
+
+
+class ImportBody(BaseModel):
+    urls: List[str]
+    label: str = ""
+
+
+@router.post("/import-urls")
+async def import_urls(body: ImportBody, shop: Installation = Depends(current_shop)):
+    """Download external images into the app (as 'upload' assets) so they can be attached or used for cloning."""
+    import aiohttp
+    from .scrape import UA
+    out, errors = [], []
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60), headers={"User-Agent": UA}) as s:
+        for url in body.urls[:20]:
+            try:
+                _check_public_url(url)
+                async with s.get(url) as resp:
+                    if resp.status != 200 or not resp.headers.get("Content-Type", "").startswith("image/"):
+                        raise ProviderError(f"HTTP {resp.status} / {resp.headers.get('Content-Type', '')}")
+                    data = await resp.read()
+                img = normalize_image(data, 2500)
+                path = os.path.join(asset_dir("uploads"), f"{uuid.uuid4().hex}.png")
+                with open(path, "wb") as f:
+                    f.write(img.data)
+                out.append(_asset_out(db.add_asset(shop.domain, "upload", "image/png", path, label=body.label or url.rsplit("/", 1)[-1][:80],
+                                                  meta={"status": "approved", "source_url": url})))
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"url": url, "error": str(exc)[:200]})
+    return {"assets": out, "errors": errors}

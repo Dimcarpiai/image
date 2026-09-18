@@ -120,3 +120,17 @@ def test_model_photo_mode_builds_text_only_requests():
     fields = {f[0]["name"]: f[2] for f in form._fields}
     assert path.endswith("/generate/core") and fields["aspect_ratio"] == "3:4" and "beard" in fields["prompt"]
     assert "model" in find_model("openai", "gpt-image-2.5-sunburst").modes and "model" in find_model("gemini", "gemini-3.1-flash-image").modes
+
+
+
+def test_extract_images_from_html():
+    from media_suite.scrape import extract_images
+    html = """<html><head><meta property="og:image" content="https://i.pinimg.com/736x/ab/cd/main.jpg"></head>
+    <body><img src="/static/favicon.png"><img data-src="//cdn.shop.com/images/polo_red.webp?v=2" srcset="a_200.jpg 200w, a_800.jpg 800w">
+    <script>{"images":{"orig":{"url":"https:\\/\\/i.pinimg.com\\/originals\\/ab\\/cd\\/big.jpg"}}}</script></body></html>"""
+    imgs = extract_images(html, "https://uk.pinterest.com/pin/1/")
+    assert imgs[0] == "https://i.pinimg.com/736x/ab/cd/main.jpg"
+    assert "https://i.pinimg.com/originals/ab/cd/big.jpg" in imgs
+    assert not any("favicon" in u for u in imgs)
+    generic = extract_images(html.replace("pinimg.com", "cdn.x.com"), "https://shop.example/p")
+    assert "https://cdn.shop.com/images/polo_red.webp?v=2" in generic and "https://shop.example/a_800.jpg" in generic

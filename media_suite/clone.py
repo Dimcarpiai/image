@@ -35,7 +35,7 @@ def _sku(old: Optional[str], color: str, suffix: str, replace_from: str) -> Opti
 
 
 async def clone_product(api: SaleorAPI, source_id: str, name: str, color: str = "", sku_suffix: str = "",
-                        images: List[tuple] = (), copy_stock: bool = False, alt: str = "") -> dict:
+                        images: List[tuple] = (), copy_stock: bool = False, alt: str = "", copy_source_images: bool = False) -> dict:
     src = await api.product_full(source_id)
     if not src:
         raise SaleorAPIError(f"product {source_id} not found")
@@ -76,8 +76,21 @@ async def clone_product(api: SaleorAPI, source_id: str, name: str, color: str = 
     if created:
         steps.append(f"{len(created)} variant(s) copied" + (" with stock" if copy_stock else ", stock set to 0"))
 
+    copied = 0
+    if copy_source_images:
+        src_media = await api.get_product(source_id)
+        for m in (src_media or {}).get("media", []):
+            if m.get("type") != "IMAGE":
+                continue
+            data = await api.download(m["url"])
+            ext = m["url"].rsplit("?", 1)[0].rsplit(".", 1)[-1].lower()
+            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp", "avif": "image/avif"}.get(ext, "image/jpeg")
+            await api.create_media(product["id"], data, f"copy-{copied}.{ext if ext in ('jpg','jpeg','png','webp','avif') else 'jpg'}", mime, m.get("alt") or alt)
+            copied += 1
+        if copied:
+            steps.append(f"{copied} image(s) copied from the source product")
     for i, (data, mime) in enumerate(images):
         await api.create_media(product["id"], data, f"clone-{i}.{mime.split('/')[-1]}", mime, alt)
     if images:
-        steps.append(f"{len(images)} image(s) attached")
+        steps.append(f"{len(images)} generated image(s) attached")
     return {"product": product, "variants": created, "steps": steps, "old_color": old_color}

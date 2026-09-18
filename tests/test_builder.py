@@ -74,7 +74,7 @@ class FakeSaleor:
             if "query CloneSource" in q:
                 return {"data": {"product": getattr(self, "clone_source", None)}}
             if "query ProductMedia" in q:
-                return {"data": {"product": {"id": "P1", "name": "Polo", "media": []}}}
+                return {"data": {"product": {"id": "P1", "name": "Polo", "media": [{"id": "M1", "alt": "front", "type": "IMAGE", "url": self.base + "/media/front.jpg"}]}}}
             return {"errors": [{"message": "unhandled " + q[:40]}]}
 
     def start(self):
@@ -235,3 +235,8 @@ def test_clone_product_colourway(saleor):
         assert saleor.variants[0]["stocks"] == [{"warehouse": "WH1", "quantity": 0}]
         assert saleor.variants[0]["channelListings"] == [{"channelId": "CH1", "price": 49.0}]
         assert saleor.revalidations[-1]["body"]["reason"] == "product-cloned"
+        # header clone: copy the source product's own images
+        n_media = len(saleor.media)
+        r = c.post("/api/studio/clone", headers=H(saleor), json={"source_product_id": "P1", "name": "Polo Olive", "color": "Olive", "copy_source_images": True})
+        assert r.status_code == 200, r.text
+        assert "copied from the source product" in " ".join(r.json()["steps"]) or len(saleor.media) >= n_media

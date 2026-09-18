@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.5.1">
+  <link rel="stylesheet" href="/static/app.css?v=0.6.0">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -34,8 +34,10 @@
 
         <div id="workspace" hidden>
           <section class="panel">
-            <div class="panel-head"><h2 id="product-title">Product</h2><span class="muted" id="product-sub"></span></div>
-            <div class="between pad"><p class="muted">Select the reference image(s) the AI should work from.</p><div style="display:flex; gap:8px; flex-wrap:wrap"><button class="btn btn-sm" id="open-picker">Add from another product</button><label class="btn btn-sm">Upload image <input type="file" id="ref-upload" accept="image/*" multiple hidden></label><button class="btn btn-sm" id="ref-url">Add from URL</button></div></div>
+            <div class="panel-head"><div><h2 id="product-title">Product</h2><span class="muted" id="product-sub"></span></div>
+              <button class="btn btn-sm" id="clone-product" title="Create a copy of this product (colourway) with its images">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Clone product</button></div>
+            <div class="between pad"><p class="muted">Select the reference image(s) the AI should work from.</p><div style="display:flex; gap:8px; flex-wrap:wrap"><button class="btn btn-sm" id="open-picker">Add from another product</button><label class="btn btn-sm">Upload image <input type="file" id="ref-upload" accept="image/*" multiple hidden></label><button class="btn btn-sm" id="ref-url">Add from URL / page</button></div></div>
             <div class="media-grid" id="product-media"></div>
           </section>
 
@@ -105,6 +107,16 @@
     </div>
   </dialog>
 
+  <dialog id="page-picker" class="lightbox picker">
+    <form method="dialog" class="preview-head"><h2>Images found on the page</h2><button class="btn btn-quiet">Close</button></form>
+    <div class="picker-body">
+      <div class="side-search" style="display:flex; gap:8px"><input type="search" id="page-url" placeholder="https://uk.pinterest.com/pin/… or any page / image URL" style="flex:1"><button class="btn btn-sm" id="page-go">Fetch</button></div>
+      <p class="muted" style="padding:8px 16px 0" id="page-msg">Tick images to import them as references. Imported images are saved in the app and can be attached to products or used for cloning.</p>
+      <div id="page-grid" class="media-grid"></div>
+      <div class="panel-foot"><span class="muted" id="page-count"></span><div><button class="btn btn-sm" id="page-import">Import selected as references</button></div></div>
+    </div>
+  </dialog>
+
   <dialog id="product-chooser" class="lightbox picker">
     <form method="dialog" class="preview-head"><h2>Add image to which product?</h2><button class="btn btn-quiet">Cancel</button></form>
     <div class="picker-body">
@@ -122,6 +134,7 @@
         <label>New colour <span class="hint">replaces the colour attribute on product & variants</span><input id="clone-color" placeholder="e.g. Navy"></label>
         <label>SKU suffix <span class="hint">optional, e.g. NAV</span><input id="clone-suffix"></label>
       </div>
+      <label class="check"><input type="checkbox" id="clone-images" checked> Copy the source product's existing images</label>
       <label class="check"><input type="checkbox" id="clone-stock"> Copy stock quantities (otherwise 0)</label>
       <div class="between"><span class="muted" id="clone-msg"></span><button class="btn btn-primary" id="clone-go">Create product</button></div>
     </div>
@@ -132,6 +145,6 @@
     <div id="lightbox-body"></div>
   </dialog>
 
-  <script src="/static/studio/app.js?v=0.5.1"></script>
+  <script src="/static/studio/app.js?v=0.6.0"></script>
 </body>
 </html>
