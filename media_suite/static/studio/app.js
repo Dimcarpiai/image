@@ -132,8 +132,17 @@
         el("img", { src: a.url, alt: "" }), sel ? el("span", { class: "check" }, "✓") : null, el("div", { class: "cap" }, "generated · " + (a.meta?.provider || ""))));
     }
     for (const [url, r] of state.extraRefs) {
+      const own = (url.match(/\/media\/([0-9a-f]{32})/) || [])[1];   // asset stored in this app (upload / import / generated)
       grid.append(el("div", { class: "tile selected", onclick: () => { state.extraRefs.delete(url); renderProductMedia(); } },
-        el("img", { src: r.thumb, alt: "" }), el("span", { class: "check" }, "✓"), el("span", { class: "src" }, r.label), el("div", { class: "cap" }, "from another product")));
+        el("img", { src: r.thumb, alt: "" }), el("span", { class: "check" }, "✓"), el("span", { class: "src" }, r.label),
+        own ? el("div", { class: "actions" }, el("button", { class: "btn btn-sm btn-primary", onclick: async (e) => {
+          e.stopPropagation();
+          try {
+            await api("/api/studio/attach", { method: "POST", body: JSON.stringify({ asset_id: own, product_id: state.product.id, alt: r.label || "" }) });
+            state.extraRefs.delete(url); notify("success", "AI Studio", `Image added to "${state.product.name}".`); await refreshProductMedia();
+          } catch (err) { notify("error", "AI Studio", err.message); }
+        } }, "Add to product")) : null,
+        el("div", { class: "cap" }, own ? "reference · click ✓ to unselect" : "from URL · reference only")));
     }
     if (!grid.children.length) grid.append(el("p", { class: "muted" }, "This product has no images yet — upload one in the product page first."));
   }
