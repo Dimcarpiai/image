@@ -154,16 +154,18 @@
     }
     for (const [url, r] of state.extraRefs) {
       const own = (url.match(/\/media\/([0-9a-f]{32})/) || [])[1];   // asset stored in this app (upload / import / generated)
-      grid.append(el("div", { class: "tile selected", onclick: () => { state.extraRefs.delete(url); renderProductMedia(); } },
-        el("img", { src: r.thumb, alt: "" }), el("span", { class: "check" }, "✓"), el("span", { class: "src" }, r.label),
-        own ? el("div", { class: "actions" }, el("button", { class: "btn btn-sm btn-primary", onclick: async (e) => {
-          e.stopPropagation();
-          try {
-            await api("/api/studio/attach", { method: "POST", body: JSON.stringify({ asset_id: own, product_id: state.product.id, alt: r.label || "" }) });
-            state.extraRefs.delete(url); notify("success", "AI Studio", `Image added to "${state.product.name}".`); await refreshProductMedia();
-          } catch (err) { notify("error", "AI Studio", err.message); }
-        } }, "Add to product")) : null,
-        el("div", { class: "cap" }, own ? "reference · click ✓ to unselect" : "from URL · reference only")));
+      const on = r.selected !== false;
+      grid.append(el("div", { class: `tile${on ? " selected" : ""}`, onclick: () => { r.selected = !on; renderProductMedia(); } },
+        el("img", { src: r.thumb, alt: "" }), on ? el("span", { class: "check" }, "✓") : null, el("span", { class: "src" }, r.label),
+        el("button", { class: "btn btn-sm del", title: "Remove from references", onclick: (e) => { e.stopPropagation(); state.extraRefs.delete(url); renderProductMedia(); } }, "✕"),
+        el("div", { class: "actions" },
+          own ? el("button", { class: "btn btn-sm btn-primary", onclick: async (e) => {
+            e.stopPropagation();
+            try {
+              await api("/api/studio/attach", { method: "POST", body: JSON.stringify({ asset_id: own, product_id: state.product.id, alt: r.label || "" }) });
+              state.extraRefs.delete(url); notify("success", "AI Studio", `Image added to "${state.product.name}".`); await refreshProductMedia();
+            } catch (err) { notify("error", "AI Studio", err.message); }
+          } }, "Add to product") : el("span", { class: "muted", style: "font-size:12px" }, "URL · reference only"))));
     }
     if (!grid.children.length) grid.append(el("p", { class: "muted" }, "This product has no images yet — upload one in the product page first."));
   }
@@ -302,7 +304,7 @@
     const body = {
       mode: state.mode, provider: $("#provider").value, model: $("#model").value, product_id: p ? p.id : null,
       prompt: $("#prompt").value.trim(),
-      product_image_urls: [...(p ? p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url) : []), ...state.extraRefs.keys()],
+      product_image_urls: [...(p ? p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url) : []), ...[...state.extraRefs].filter(([, r]) => r.selected !== false).map(([u]) => u)],
       source_asset_ids: [...state.selectedAssets], model_asset_id: state.mode === "tryon" ? state.modelPhotoId : null, options,
     };
     if (state.mode === "scene" && !body.prompt) return notify("error", "AI Studio", "Write a prompt describing the scene.");
@@ -390,7 +392,7 @@
   });
   $("#generate-pack").addEventListener("click", async () => {
     const p = state.product; if (!p) return notify("error", "AI Studio", "Pick a product first.");
-    const body = { product_id: p.id, product_image_urls: [...p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url), ...state.extraRefs.keys()], model_asset_id: state.modelPhotoId };
+    const body = { product_id: p.id, product_image_urls: [...p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url), ...[...state.extraRefs].filter(([, r]) => r.selected !== false).map(([u]) => u)], model_asset_id: state.modelPhotoId };
     if (!body.product_image_urls.length) return notify("error", "AI Studio", "Tick at least one product image.");
     try {
       const r = await api("/api/studio/pack", { method: "POST", body: JSON.stringify(body) });
