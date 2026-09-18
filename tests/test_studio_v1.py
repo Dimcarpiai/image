@@ -230,3 +230,16 @@ def test_model_parameters_pass_through(saleor, monkeypatch):
         wait_done(c, saleor)
         o = loc.calls[-1]["options"]
         assert o["cloth_type"] == "overall" and o["steps"] == "50" and "bogus" not in o
+
+
+def test_preferred_provider_setting(saleor, monkeypatch):
+    loc = Recorder(PROVIDERS["local"]); oai = Recorder(PROVIDERS["openai"]); monkeypatch.setitem(PROVIDERS, "local", loc); monkeypatch.setitem(PROVIDERS, "openai", oai)
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=H(saleor), json={"provider": "local", "api_key": "http://127.0.0.1:1|t"})
+        c.put("/api/studio/keys", headers=H(saleor), json={"provider": "openai", "api_key": "k"})
+        c.put("/api/studio/settings", headers=H(saleor), json={"preferred_providers": {"tryon": "local"}})
+        m = c.post("/api/studio/assets/models", headers=H(saleor), files={"file": ("m.png", png(), "image/png")}, data={"label": "M"}).json()
+        r = c.post("/api/studio/run", headers=H(saleor), json={"task": "model", "product_id": "P1", "refs": {"product_urls": [saleor.base + "/media/front.png"], "model_asset_id": m["id"]}, "options": {"pose": "walking"}}).json()
+        assert r["provider"] == "local"          # preference wins even for a pose that would otherwise route to a prompt engine
+        wait_done(c, saleor)
+        c.put("/api/studio/settings", headers=H(saleor), json={"preferred_providers": {"tryon": ""}})

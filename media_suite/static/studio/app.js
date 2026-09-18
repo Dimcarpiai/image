@@ -56,7 +56,7 @@
     try {
       [S.catalog, S.tasks] = await Promise.all([api("/api/studio/catalog"), api("/api/studio/tasks")]);
       S.opts.locks = S.tasks.locks.map((l) => l.id); S.lockedModel = S.tasks.locked_model; S.looks = S.tasks.looks;
-      try { const st = await api("/api/studio/settings"); if (st.default_background) S.opts.background = st.default_background; if (st.default_pose) S.opts.pose = st.default_pose; } catch {}
+      try { const st = await api("/api/studio/settings"); S.settings = st; if (st.default_background) S.opts.background = st.default_background; if (st.default_pose) S.opts.pose = st.default_pose; } catch {}
       S.models = await api("/api/studio/assets?kind=model");
       renderKeys(); renderAdvanced(); renderModelParams(); await loadProducts(true); refreshReviewCount();
       if (!S.catalog.providers.some((p) => p.configured)) showView("settings");
@@ -230,7 +230,7 @@
   }
   function resolvedModel() {
     const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task];
-    const prov = $("#adv-provider").value || S.tasks.providers_ready[mode]?.[0]; if (!prov) return null;
+    const prov = $("#adv-provider").value || (S.settings?.preferred_providers || {})[mode] || S.tasks.providers_ready[mode]?.[0]; if (!prov) return null;
     const p = S.catalog.providers.find((x) => x.id === prov); if (!p) return null;
     const mid = $("#adv-model").value || S.tasks.providers_ready[mode]?.[1] || (p.models.find((m) => m.modes.includes(mode)) || {}).id;
     return p.models.find((m) => m.id === mid) || null;
@@ -248,7 +248,7 @@
   function _unused() {
   }
   const advanced = () => ({ provider: $("#adv-provider").value || null, model: $("#adv-model").value || null, n: Number($("#adv-n").value), size: $("#adv-size").value || null, options: advancedOptions() });
-  let et; function updateEstimate() { clearTimeout(et); et = setTimeout(async () => { try { const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task]; const ready = S.tasks.providers_ready[mode]; const prov = $("#adv-provider").value || ready?.[0], model = $("#adv-model").value || ready?.[1]; if (!prov) { $("#cost-hint").textContent = "No provider configured for this task — add a key in Settings."; return; } const n = S.task === "variants" ? (S.opts.selectedColors || []).length || 1 : S.task === "pack" ? 4 : Number($("#adv-n").value); const e = await api("/api/studio/estimate", { method: "POST", body: JSON.stringify({ provider: prov, model, mode, n }) }); $("#cost-hint").textContent = `${prov} · ≈ €${e.cost_eur.toFixed(2)} · ~${e.seconds >= 90 ? Math.round(e.seconds / 60) + " min" : e.seconds + " s"}` + (e.daily_budget_eur ? ` · today €${e.spent_today_eur.toFixed(2)}/${e.daily_budget_eur.toFixed(0)}` : ""); } catch { $("#cost-hint").textContent = ""; } }, 200); }
+  let et; function updateEstimate() { clearTimeout(et); et = setTimeout(async () => { try { const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task]; const ready = S.tasks.providers_ready[mode]; const pref = (S.settings?.preferred_providers || {})[mode]; const prov = $("#adv-provider").value || pref || ready?.[0]; const model = $("#adv-model").value || (prov === ready?.[0] ? ready?.[1] : resolvedModel()?.id); if (!prov) { $("#cost-hint").textContent = "No provider configured for this task — add a key in Settings."; return; } const n = S.task === "variants" ? (S.opts.selectedColors || []).length || 1 : S.task === "pack" ? 4 : Number($("#adv-n").value); const e = await api("/api/studio/estimate", { method: "POST", body: JSON.stringify({ provider: prov, model, mode, n }) }); $("#cost-hint").textContent = `${prov} · ≈ €${e.cost_eur.toFixed(2)} · ~${e.seconds >= 90 ? Math.round(e.seconds / 60) + " min" : e.seconds + " s"}` + (e.daily_budget_eur ? ` · today €${e.spent_today_eur.toFixed(2)}/${e.daily_budget_eur.toFixed(0)}` : ""); } catch { $("#cost-hint").textContent = ""; } }, 200); }
 
   // ---- generate ---------------------------------------------------------------------------
   $("#generate").addEventListener("click", async () => {
@@ -336,6 +336,7 @@
   async function loadSettings() {
     try {
       const [s, sf, t] = await Promise.all([api("/api/studio/settings"), api("/api/studio/storefront"), api("/api/studio/tasks")]); S.looks = t.looks; S.lockedModel = t.locked_model; S.models = await api("/api/studio/assets?kind=model");
+      for (const mode of ["scene", "tryon", "edit", "video"]) { const sel = $(`#pp-${mode}`); sel.replaceChildren(el("option", { value: "" }, "Automatic")); for (const p of S.catalog.providers.filter((p) => p.configured && p.models.some((m) => m.modes.includes(mode)))) sel.append(el("option", { value: p.id }, p.label)); sel.value = (s.preferred_providers || {})[mode] || ""; }
       const sb = $("#st-bg"); sb.replaceChildren(); for (const b of t.backgrounds.filter((x) => x.id !== "custom")) sb.append(el("option", { value: b.id }, b.label)); sb.value = s.default_background || "white";
       const sp = $("#st-pose"); sp.replaceChildren(); for (const p of t.poses) sp.append(el("option", { value: p.id }, p.label)); sp.value = s.default_pose || "standing";
       $("#st-auto").checked = s.auto_pack_new_uploads; $("#st-clean").checked = s.clean_uploads; $("#st-budget").value = s.daily_budget_eur || ""; $("#st-notify").value = s.notify_url || ""; $("#st-stats").textContent = `Spent today ≈ €${s.spent_today_eur.toFixed(2)} · ${s.pending_review} waiting for review.`;
@@ -347,7 +348,7 @@
     } catch (e) { $("#st-msg").textContent = e.message; }
   }
   $("#look-save").addEventListener("click", async () => { const name = $("#look-name").value.trim(); if (!name) return notify("error", "Give the look a name."); await api("/api/studio/looks", { method: "PUT", body: JSON.stringify({ name, background: $("#look-bg").value, pose: $("#look-pose").value, size: $("#look-size").value || null, model_asset_id: $("#look-use-model").checked ? S.lockedModel : null }) }); $("#look-name").value = ""; loadSettings(); });
-  $("#st-save").addEventListener("click", async () => { try { await api("/api/studio/settings", { method: "PUT", body: JSON.stringify({ default_background: $("#st-bg").value, default_pose: $("#st-pose").value, auto_pack_new_uploads: $("#st-auto").checked, clean_uploads: $("#st-clean").checked, daily_budget_eur: Number($("#st-budget").value || 0), notify_url: $("#st-notify").value.trim() }) }); await api("/api/studio/storefront", { method: "PUT", body: JSON.stringify({ revalidate_url: $("#sf-url").value.trim(), revalidate_secret: $("#sf-secret").value }) }); $("#sf-secret").value = "";
+  $("#st-save").addEventListener("click", async () => { try { await api("/api/studio/settings", { method: "PUT", body: JSON.stringify({ preferred_providers: Object.fromEntries(["scene", "tryon", "edit", "video"].map((m) => [m, $(`#pp-${m}`).value])), default_background: $("#st-bg").value, default_pose: $("#st-pose").value, auto_pack_new_uploads: $("#st-auto").checked, clean_uploads: $("#st-clean").checked, daily_budget_eur: Number($("#st-budget").value || 0), notify_url: $("#st-notify").value.trim() }) }); await api("/api/studio/storefront", { method: "PUT", body: JSON.stringify({ revalidate_url: $("#sf-url").value.trim(), revalidate_secret: $("#sf-secret").value }) }); $("#sf-secret").value = "";
       await api("/api/studio/storefront-url", { method: "PUT", body: JSON.stringify({ product_url: $("#sf-product-url").value.trim() }) });
       await api("/api/builder/settings", { method: "PUT", body: JSON.stringify({ defaults: { sku_pattern: $("#sku-pattern").value.trim() || "{brand}-{style}-{color:3}-{size}", brand: $("#sku-brand").value.trim() || "SKU" } }) }); $("#st-msg").textContent = "Saved."; } catch (e) { $("#st-msg").textContent = e.message; } });
 

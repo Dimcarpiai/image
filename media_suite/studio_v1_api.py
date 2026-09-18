@@ -182,6 +182,11 @@ def _create_job(shop: Installation, product: dict, body: RunBody) -> dict:
     if task == "video" and not refs.product_urls and not refs.source_asset_id:
         refs.product_urls = [m["url"] for m in product["media"][:1]]
 
+    preferred = (st.get("preferred_providers") or {}).get(mode)
+    if preferred and not body.advanced.provider:
+        keys = db.get_settings(shop.domain).get("keys", {})
+        if keys.get(preferred):
+            body.advanced.provider = preferred            # saved preference: always this engine for the task
     needs_prompt = mode == "tryon" and (body.options.pose != "standing" or bool(refs.style_url) or bool(body.options.extra))
     if needs_prompt and not body.advanced.provider:
         keys = db.get_settings(shop.domain).get("keys", {})
