@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.1.3">
+  <link rel="stylesheet" href="/static/app.css?v=1.1.5">
 </head>
 <body>
   <main id="app" class="app studio" hidden>
@@ -21,7 +21,7 @@
     <section class="view" data-view="studio">
       <div class="layout">
         <aside class="panel side">
-          <div class="panel-head"><h2>1 · Product</h2><label class="check small"><input type="checkbox" id="select-all"> all</label></div>
+          <div class="panel-head"><h2>Products</h2><label class="check small"><input type="checkbox" id="select-all"> all</label></div>
           <div class="side-search"><input type="search" id="search" placeholder="Search products"></div>
           <div class="bulk-bar" id="bulk-bar" hidden><span id="bulk-count"></span><button class="btn btn-sm btn-primary" id="bulk-go">Run for selected…</button></div>
           <ul class="product-list" id="product-list"></ul>
@@ -35,7 +35,7 @@
             <!-- 2 · task -->
             <section class="panel">
               <div class="panel-head"><div><h2 id="product-title">Product</h2><span class="muted" id="product-sub"></span></div>
-                <div class="btn-row"><button class="btn btn-sm" id="edit-product">Edit details</button><button class="btn btn-sm" id="clone-product">Clone</button></div></div>
+                <select class="action-select" id="product-menu" style="width:auto"><option value="">⋯</option><option value="edit">Edit details</option><option value="clone">Clone product</option></select></div>
               <div class="task-grid" id="task-grid"></div>
             </section>
 
@@ -97,6 +97,7 @@
         <section class="panel">
           <div class="panel-head"><h2>Automation</h2></div>
           <div class="gen-form">
+            <div class="row2"><label>Default background <select id="st-bg"></select></label><label>Default pose (on model) <select id="st-pose"></select></label></div>
             <label class="check"><input type="checkbox" id="st-auto"> Generate a product pack automatically when a product gets its first image</label>
             <label class="check"><input type="checkbox" id="st-clean"> Clean uploads (remove background, white, square — needs Stability key)</label>
             <div class="row2"><label>Daily budget (EUR) <input type="number" id="st-budget" min="0"></label><label>Notify webhook (Slack/Teams) <input id="st-notify"></label></div>
@@ -122,6 +123,6 @@
   <dialog id="clone-dialog" class="lightbox"><form method="dialog" class="preview-head"><h2>Clone product</h2><button class="btn btn-quiet">Cancel</button></form><div class="gen-form" style="width:min(600px,88vw)"><label>New name <input id="clone-name"></label><div class="row2"><label>New colour <input id="clone-color" placeholder="e.g. Navy"></label><label>SKU suffix <input id="clone-suffix"></label></div><label class="check"><input type="checkbox" id="clone-images" checked> copy existing images</label><label class="check"><input type="checkbox" id="clone-stock"> copy stock</label><div class="between"><span class="muted" id="clone-msg"></span><button class="btn btn-primary" id="clone-go">Create</button></div></div></dialog>
   <dialog id="lightbox" class="lightbox"><form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form><div id="lightbox-body"></div></dialog>
 
-  <script src="/static/studio/app.js?v=1.1.3"></script>
+  <script src="/static/studio/app.js?v=1.1.5"></script>
 </body>
 </html>

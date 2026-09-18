@@ -157,8 +157,12 @@ def _create_job(shop: Installation, product: dict, body: RunBody) -> dict:
     if task not in TASK_MODE:
         raise HTTPException(status_code=400, detail="unknown task")
     mode = TASK_MODE[task]
-    _apply_look(shop.domain, body)
     st = db.get_settings(shop.domain).get("studio", {})
+    if body.options.background == "white" and st.get("default_background"):
+        body.options.background = st["default_background"]
+    if body.options.pose == "standing" and st.get("default_pose"):
+        body.options.pose = st["default_pose"]
+    _apply_look(shop.domain, body)
     refs = body.refs
     if mode == "tryon" and not refs.model_asset_id:
         refs.model_asset_id = st.get("locked_model") or st.get("default_models", {}).get(product.get("product_type") or "") or st.get("default_models", {}).get("*")

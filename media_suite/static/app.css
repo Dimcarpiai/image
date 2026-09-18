@@ -298,3 +298,10 @@ kbd { border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px
 #options-more { padding: 8px 0 0; }
 .gen-form#options { padding: 10px 20px 4px; gap: 10px; }
 .advanced { margin-top: 6px; }
+
+/* ---- 1.1.5 leaner ---- */
+.task-grid { padding: 10px 20px 12px; }
+.task { padding: 8px 12px; font-size: 13px; }
+.task.active span { display: none; }
+#product-menu { font-size: 16px; padding: 4px 8px; }
+.gen-foot .btn-primary { padding: 10px 22px; font-size: 15px; }

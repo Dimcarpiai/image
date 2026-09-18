@@ -56,6 +56,7 @@
     try {
       [S.catalog, S.tasks] = await Promise.all([api("/api/studio/catalog"), api("/api/studio/tasks")]);
       S.opts.locks = S.tasks.locks.map((l) => l.id); S.lockedModel = S.tasks.locked_model; S.looks = S.tasks.looks;
+      try { const st = await api("/api/studio/settings"); if (st.default_background) S.opts.background = st.default_background; if (st.default_pose) S.opts.pose = st.default_pose; } catch {}
       S.models = await api("/api/studio/assets?kind=model");
       renderKeys(); renderAdvanced(); await loadProducts(true); refreshReviewCount();
       if (!S.catalog.providers.some((p) => p.configured)) showView("settings");
@@ -202,7 +203,7 @@
     const chipsIn = (target) => (title, items, get, set) => target.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, title), el("div", { class: "values" }, ...items.map((i) => chip(i.label, get() === i.id, () => { set(i.id); renderOptions(); })))));
     const chips = chipsIn(box), chipsMore = chipsIn(moreBox);
     if (S.task === "model" || S.task === "pack") chips("Pose", T.poses, () => o.pose, (v) => (o.pose = v));
-    if (["product", "model", "pack"].includes(S.task)) chips("Background", T.backgrounds, () => o.background, (v) => { o.background = v; if (v === "custom" && !S.refs.style_url) pickFor("style"); });
+    if (["product", "model", "pack"].includes(S.task)) chipsMore("Background", T.backgrounds, () => o.background, (v) => { o.background = v; if (v === "custom" && !S.refs.style_url) pickFor("style"); });
     if (S.task === "product") chipsMore("Angle", [{ id: "front view", label: "Front" }, { id: "back view", label: "Back" }, { id: "side view", label: "Side" }, { id: "fabric detail, macro of the texture and stitching", label: "Fabric detail" }], () => o.angle, (v) => (o.angle = v));
     if (S.task !== "video") chipsMore("Logo", T.logo, () => o.logo, (v) => { o.logo = v; if (v === "add" && !S.refs.logo_asset_id) pickFor("logo"); });
     if (S.task === "edit") { chips("Change", T.edit_actions, () => o.action, (v) => (o.action = v)); const act = T.edit_actions.find((a) => a.id === o.action); if (act?.needs_value) box.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, "To"), el("input", { value: o.value, placeholder: o.action === "change_color" ? "e.g. Navy" : "describe", oninput: (e) => (o.value = e.target.value) }))); }
@@ -210,7 +211,7 @@
     if (S.task === "pack") chips("Pack", T.packs, () => o.pack || "product", (v) => (o.pack = v));
     if (S.task !== "video") { moreBox.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, "Product lock"), el("div", { class: "values" }, ...T.locks.map((l) => chip(l.label, o.locks.includes(l.id), () => { o.locks = o.locks.includes(l.id) ? o.locks.filter((x) => x !== l.id) : [...o.locks, l.id]; renderOptions(); })), el("span", { class: "muted", style: "font-size:12px;align-self:center" }, "locked parts must not change")))); }
     if (S.task === "variants") loadVariantColors();
-    if (!box.children.length) box.append(el("p", { class: "muted", style: "margin:0" }, "Nothing else to choose — press Generate."));
+
     $("#generate").disabled = !canGenerate();
     updateEstimate();
   }
@@ -316,6 +317,8 @@
   async function loadSettings() {
     try {
       const [s, sf, t] = await Promise.all([api("/api/studio/settings"), api("/api/studio/storefront"), api("/api/studio/tasks")]); S.looks = t.looks; S.lockedModel = t.locked_model; S.models = await api("/api/studio/assets?kind=model");
+      const sb = $("#st-bg"); sb.replaceChildren(); for (const b of t.backgrounds.filter((x) => x.id !== "custom")) sb.append(el("option", { value: b.id }, b.label)); sb.value = s.default_background || "white";
+      const sp = $("#st-pose"); sp.replaceChildren(); for (const p of t.poses) sp.append(el("option", { value: p.id }, p.label)); sp.value = s.default_pose || "standing";
       $("#st-auto").checked = s.auto_pack_new_uploads; $("#st-clean").checked = s.clean_uploads; $("#st-budget").value = s.daily_budget_eur || ""; $("#st-notify").value = s.notify_url || ""; $("#st-stats").textContent = `Spent today ≈ €${s.spent_today_eur.toFixed(2)} · ${s.pending_review} waiting for review.`;
       $("#sf-url").value = sf.revalidate_url; $("#sf-secret").placeholder = sf.has_secret ? "•••••• (saved)" : "optional"; $("#sf-product-url").value = sf.product_url || "";
       try { const bm = await api("/api/builder/meta"); $("#sku-pattern").value = bm.defaults?.sku_pattern || ""; $("#sku-brand").value = bm.defaults?.brand || ""; } catch {}
@@ -325,12 +328,15 @@
     } catch (e) { $("#st-msg").textContent = e.message; }
   }
   $("#look-save").addEventListener("click", async () => { const name = $("#look-name").value.trim(); if (!name) return notify("error", "Give the look a name."); await api("/api/studio/looks", { method: "PUT", body: JSON.stringify({ name, background: $("#look-bg").value, pose: $("#look-pose").value, size: $("#look-size").value || null, model_asset_id: $("#look-use-model").checked ? S.lockedModel : null }) }); $("#look-name").value = ""; loadSettings(); });
-  $("#st-save").addEventListener("click", async () => { try { await api("/api/studio/settings", { method: "PUT", body: JSON.stringify({ auto_pack_new_uploads: $("#st-auto").checked, clean_uploads: $("#st-clean").checked, daily_budget_eur: Number($("#st-budget").value || 0), notify_url: $("#st-notify").value.trim() }) }); await api("/api/studio/storefront", { method: "PUT", body: JSON.stringify({ revalidate_url: $("#sf-url").value.trim(), revalidate_secret: $("#sf-secret").value }) }); $("#sf-secret").value = "";
+  $("#st-save").addEventListener("click", async () => { try { await api("/api/studio/settings", { method: "PUT", body: JSON.stringify({ default_background: $("#st-bg").value, default_pose: $("#st-pose").value, auto_pack_new_uploads: $("#st-auto").checked, clean_uploads: $("#st-clean").checked, daily_budget_eur: Number($("#st-budget").value || 0), notify_url: $("#st-notify").value.trim() }) }); await api("/api/studio/storefront", { method: "PUT", body: JSON.stringify({ revalidate_url: $("#sf-url").value.trim(), revalidate_secret: $("#sf-secret").value }) }); $("#sf-secret").value = "";
       await api("/api/studio/storefront-url", { method: "PUT", body: JSON.stringify({ product_url: $("#sf-product-url").value.trim() }) });
       await api("/api/builder/settings", { method: "PUT", body: JSON.stringify({ defaults: { sku_pattern: $("#sku-pattern").value.trim() || "{brand}-{style}-{color:3}-{size}", brand: $("#sku-brand").value.trim() || "SKU" } }) }); $("#st-msg").textContent = "Saved."; } catch (e) { $("#st-msg").textContent = e.message; } });
 
   // ---- edit details / clone (unchanged behaviour) ----------------------------------------------
   const paras = (t) => t.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+  $("#product-menu").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v === "edit") $("#edit-product").click(); if (v === "clone") $("#clone-product").click(); });
+  const hiddenBtn = (id) => { let b = document.getElementById(id); if (!b) { b = el("button", { id, hidden: true }); document.body.append(b); } return b; };
+  hiddenBtn("edit-product"); hiddenBtn("clone-product");
   $("#edit-product").addEventListener("click", async () => {
     if (!S.product) return; const dlg = $("#edit-dialog"); $("#ed-msg").textContent = "Loading…"; dlg.showModal();
     try {

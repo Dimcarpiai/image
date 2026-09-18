@@ -180,6 +180,8 @@ class StudioSettings(BaseModel):
     notify_url: Optional[str] = None
     review_threshold: Optional[int] = None
     default_models: Optional[dict] = None      # product type name (or "*") -> model asset id
+    default_background: Optional[str] = None
+    default_pose: Optional[str] = None
 
 
 @router.get("/settings")
@@ -188,6 +190,7 @@ async def get_studio_settings(shop: Installation = Depends(current_shop)):
     return {"auto_pack_new_uploads": bool(st.get("auto_pack_new_uploads")), "clean_uploads": bool(st.get("clean_uploads")),
             "daily_budget_eur": float(st.get("daily_budget_eur") or 0), "notify_url": st.get("notify_url", ""),
             "review_threshold": int(st.get("review_threshold") or 0), "default_models": st.get("default_models", {}),
+            "default_background": st.get("default_background", "white"), "default_pose": st.get("default_pose", "standing"),
             "spent_today_eur": round(db.spend_today(shop.domain), 2), "pending_review": db.count_pending_review(shop.domain)}
 
 
