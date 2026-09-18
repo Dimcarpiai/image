@@ -6,7 +6,7 @@ from pydantic import BaseSettings
 class Settings(BaseSettings):
     app_id: str = "saleor.media-suite"
     app_name: str = "Media Suite"
-    app_version: str = "0.9.0"
+    app_version: str = "0.9.1"
 
     secret_key: str = ""                      # encrypts provider keys, signs media URLs
     allowed_saleor_domains_raw: str = ""

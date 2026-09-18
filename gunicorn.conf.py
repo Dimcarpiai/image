@@ -1,6 +1,8 @@
 # Mirrors the deployment recipe from the framework README.
 workers = 1  # jobs run in-process; keep one worker so a job and its polling share state
 keepalive = 30
+timeout = 900        # AI providers (local LLM first load, video) can take minutes
+graceful_timeout = 60
 worker_class = "uvicorn.workers.UvicornH11Worker"
 bind = ["0.0.0.0:8080"]
 accesslog = "-"
