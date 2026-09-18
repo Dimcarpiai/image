@@ -85,11 +85,12 @@ async def _run(installation: Installation, job_id: str):
             key = provider_key(installation.domain, job["provider"])
             outputs = await asyncio.wait_for(provider.generate(job["model"], req, key), timeout=settings.job_timeout)
             asset_ids = []
+            kind = "model" if job["mode"] == "model" else "generated"
             for i, out in enumerate(outputs):
                 hint = f"{job_id}-{i}"
-                path = save_bytes("generated", hint, out.data, out.mime)
-                asset = db.add_asset(installation.domain, "generated", out.mime, path, product_id=job["product_id"],
-                                     label=job["input"].get("prompt", "")[:120],
+                path = save_bytes("models" if kind == "model" else "generated", hint, out.data, out.mime)
+                asset = db.add_asset(installation.domain, kind, out.mime, path, product_id=job["product_id"],
+                                     label=(job["input"].get("prompt") or "AI model")[:120],
                                      meta={"job_id": job_id, "mode": job["mode"], "provider": job["provider"], "model": job["model"]})
                 asset_ids.append(asset["id"])
             db.update_job(job_id, "done", asset_ids=asset_ids)

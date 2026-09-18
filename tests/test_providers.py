@@ -9,11 +9,11 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 
 def test_catalog_lists_all_modes_and_models():
     c = catalog({"openai": True})
-    assert [m["id"] for m in c["modes"]] == ["scene", "tryon", "video"]
+    assert [m["id"] for m in c["modes"]] == ["scene", "tryon", "video", "model"]
     ids = {p["id"]: p for p in c["providers"]}
     assert ids["openai"]["configured"] and not ids["fal"]["configured"]
     assert any("video" in m["modes"] for m in ids["fal"]["models"])
-    assert find_model("gemini", "gemini-3.1-flash-image").modes == ["scene", "tryon"]
+    assert find_model("gemini", "gemini-3.1-flash-image").modes == ["scene", "tryon", "model"]
 
 
 def test_fal_inputs_per_model():
@@ -110,3 +110,13 @@ def test_local_provider_roundtrip():
     out, seen = asyncio.run(_fake_server_roundtrip())
     assert out[0].data == b"\x89PNGfake" and out[0].mime == "image/png"
     assert seen == {"token": "secret", "cloth": "lower", "person": len(PNG), "garment": len(PNG)}
+
+
+def test_model_photo_mode_builds_text_only_requests():
+    from media_suite.providers.base import model_photo_prompt
+    from media_suite.providers.stability_provider import StabilityProvider
+    assert "facing the camera" in model_photo_prompt("woman, 30s") and model_photo_prompt("woman, 30s").endswith("woman, 30s")
+    path, form = StabilityProvider()._form("core-t2i", GenerateRequest("model", "man, 40s, beard", [], None, {}))
+    fields = {f[0]["name"]: f[2] for f in form._fields}
+    assert path.endswith("/generate/core") and fields["aspect_ratio"] == "3:4" and "beard" in fields["prompt"]
+    assert "model" in find_model("openai", "gpt-image-2.5-sunburst").modes and "model" in find_model("gemini", "gemini-3.1-flash-image").modes

@@ -7,7 +7,7 @@ from typing import List
 import aiohttp
 from PIL import Image
 
-from .base import GenerateRequest, ModelSpec, Output, Provider, ProviderError, ProviderSpec, scene_prompt
+from .base import GenerateRequest, ModelSpec, Output, Provider, ProviderError, ProviderSpec, model_photo_prompt, scene_prompt
 
 API = "https://api.stability.ai/v2beta"
 ASPECTS = ["1:1", "3:4", "4:3", "9:16", "16:9"]
@@ -26,6 +26,7 @@ class StabilityProvider(Provider):
                       options={"strength": ["0.35", "0.5", "0.65", "0.8"]}),
             ModelSpec("sd3.5-large", "Stable Diffusion 3.5 Large (image-to-image)", ["scene"],
                       options={"strength": ["0.35", "0.5", "0.65", "0.8"]}),
+            ModelSpec("core-t2i", "Stable Image Core (text → model photo, 3 credits)", ["model"], options={"aspect_ratio": ["3:4", "2:3", "9:16"]}),
             ModelSpec("search-replace", "Search & replace garment on model (garment from prompt, not photo)", ["tryon"],
                       options={"garment": ["shirt", "t-shirt", "polo shirt", "blouse", "jacket", "dress", "trousers", "skirt"]}),
             ModelSpec("svd", "Stable Video Diffusion (image-to-video)", ["video"],
@@ -37,6 +38,11 @@ class StabilityProvider(Provider):
         """Returns (path, FormData). Kept separate from the network call so it can be tested."""
         o = req.options
         form = aiohttp.FormData()
+        if model == "core-t2i":
+            form.add_field("prompt", model_photo_prompt(req.prompt))
+            form.add_field("aspect_ratio", o.get("aspect_ratio", "3:4"))
+            form.add_field("output_format", "png")
+            return "/stable-image/generate/core", form
         if model == "search-replace":
             if not req.model_image:
                 raise ProviderError("a model photo is required for try-on")

@@ -3,7 +3,7 @@ from typing import List
 
 import aiohttp
 
-from .base import GenerateRequest, ImageInput, ModelSpec, Output, Provider, ProviderError, ProviderSpec, scene_prompt, tryon_prompt
+from .base import GenerateRequest, ImageInput, ModelSpec, Output, Provider, ProviderError, ProviderSpec, model_photo_prompt, scene_prompt, tryon_prompt
 import base64
 
 API = "https://api.openai.com/v1"
@@ -18,14 +18,16 @@ class OpenAIProvider(Provider):
         key_label="OpenAI API key",
         key_help="platform.openai.com → API keys. Image models may require organization verification.",
         models=[
-            ModelSpec("gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst (best editing)", ["scene", "tryon"], options={"size": SIZES, "quality": QUALITIES}),
-            ModelSpec("gpt-image-2.5-flare", "GPT Image 2.5 Flare (fast)", ["scene", "tryon"], options={"size": SIZES, "quality": QUALITIES}),
-            ModelSpec("gpt-image-2", "GPT Image 2", ["scene", "tryon"], options={"size": SIZES, "quality": QUALITIES}),
-            ModelSpec("gpt-image-1.5", "GPT Image 1.5", ["scene", "tryon"], options={"size": SIZES, "quality": QUALITIES}),
+            ModelSpec("gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst (best editing)", ["scene", "tryon", "model"], options={"size": SIZES, "quality": QUALITIES}),
+            ModelSpec("gpt-image-2.5-flare", "GPT Image 2.5 Flare (fast)", ["scene", "tryon", "model"], options={"size": SIZES, "quality": QUALITIES}),
+            ModelSpec("gpt-image-2", "GPT Image 2", ["scene", "tryon", "model"], options={"size": SIZES, "quality": QUALITIES}),
+            ModelSpec("gpt-image-1.5", "GPT Image 1.5", ["scene", "tryon", "model"], options={"size": SIZES, "quality": QUALITIES}),
         ],
     )
 
     async def generate(self, model: str, req: GenerateRequest, api_key: str) -> List[Output]:
+        if req.mode == "model":
+            return await self._text_to_image(model, model_photo_prompt(req.prompt), req, api_key)
         images: List[ImageInput] = []
         if req.mode == "tryon":
             if not req.model_image:
@@ -57,6 +59,21 @@ class OpenAIProvider(Provider):
         for item in body.get("data", []):
             if item.get("b64_json"):
                 outputs.append(Output(base64.b64decode(item["b64_json"]), "image/png"))
+        if not outputs:
+            raise ProviderError("OpenAI returned no image")
+        return outputs
+
+    async def _text_to_image(self, model: str, prompt: str, req: GenerateRequest, api_key: str) -> List[Output]:
+        body = {"model": model, "prompt": prompt, "n": int(req.options.get("n", 1)),
+                "size": req.options.get("size", "1024x1536"), "quality": req.options.get("quality", "auto"), "output_format": "png"}
+        if body["size"] == "auto":
+            body["size"] = "1024x1536"
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as s:
+            async with s.post(f"{API}/images/generations", json=body, headers={"Authorization": f"Bearer {api_key}"}) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    raise ProviderError(f"OpenAI: {data.get('error', {}).get('message', resp.status)}")
+        outputs = [Output(base64.b64decode(i["b64_json"]), "image/png") for i in data.get("data", []) if i.get("b64_json")]
         if not outputs:
             raise ProviderError("OpenAI returned no image")
         return outputs

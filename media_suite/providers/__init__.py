@@ -13,6 +13,7 @@ MODES = [
     {"id": "scene", "label": "Scene from prompt", "help": "New photo of the product in a scene you describe."},
     {"id": "tryon", "label": "On a model", "help": "Put the product on a real person from a photo."},
     {"id": "video", "label": "Video", "help": "Short clip animated from a product image."},
+    {"id": "model", "label": "AI model photo", "help": "Generate a try-on-ready model photo (front view, plain background) and save it to your model library."},
 ]
 
 

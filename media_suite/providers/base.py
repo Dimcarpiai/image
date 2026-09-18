@@ -83,3 +83,14 @@ def scene_prompt(user_prompt: str) -> str:
         "pattern, logo, material and proportions. Generate a new photorealistic e-commerce image: "
     )
     return f"{base}{user_prompt}".strip()
+
+
+def model_photo_prompt(user_prompt: str) -> str:
+    """Prompt tuned to produce inputs that virtual try-on models handle well."""
+    base = (
+        "Photorealistic e-commerce fashion photo of a single model standing straight, facing the camera, "
+        "full upper body visible from head to below the hips, arms relaxed at the sides, neutral expression, "
+        "wearing a plain fitted grey t-shirt and plain trousers, no jacket, no accessories, no logos, "
+        "plain light grey studio background, even soft lighting, sharp focus, portrait orientation, 3:4. "
+    )
+    return f"{base}{user_prompt}".strip()

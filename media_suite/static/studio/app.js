@@ -133,8 +133,12 @@
     }
     $("#mode-help").textContent = state.catalog.modes.find((m) => m.id === state.mode)?.help || "";
     $("#model-photo-block").hidden = state.mode !== "tryon";
+    $("#empty-state").hidden = state.mode === "model" || !!state.product;
+    $("#workspace").hidden = !(state.mode === "model" || state.product);
+    document.querySelector("#workspace .panel").hidden = state.mode === "model" && !state.product;
     $("#prompt").placeholder = { scene: "e.g. on a wooden table in a bright kitchen, soft morning light", tryon: "optional styling, e.g. tucked in, sleeves rolled — for Stability describe the garment: 'burgundy rugby shirt with white stripes'",
-      video: "e.g. slow 360° turn on a rotating stand, soft studio light" }[state.mode];
+      video: "e.g. slow 360° turn on a rotating stand, soft studio light",
+      model: "describe the person, e.g. woman in her 30s, medium-length dark hair, athletic build — pose, background and lighting are set automatically" }[state.mode];
     renderProviderSelect();
   }
   function providersForMode() { return state.catalog.providers.filter((p) => p.models.some((m) => m.modes.includes(state.mode))); }
@@ -186,16 +190,17 @@
 
   // ---- generate -----------------------------------------------------------
   $("#generate").addEventListener("click", async () => {
-    const p = state.product; if (!p) return;
+    const p = state.product; if (!p && state.mode !== "model") return;
     const options = { n: Number($("#count").value) };
     for (const s of $("#model-options").querySelectorAll("select")) options[s.dataset.opt] = s.value;
     const body = {
-      mode: state.mode, provider: $("#provider").value, model: $("#model").value, product_id: p.id,
+      mode: state.mode, provider: $("#provider").value, model: $("#model").value, product_id: p ? p.id : null,
       prompt: $("#prompt").value.trim(),
-      product_image_urls: p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url),
+      product_image_urls: p ? p.media.filter((m) => state.selectedMedia.has(m.id)).map((m) => m.url) : [],
       source_asset_ids: [...state.selectedAssets], model_asset_id: state.mode === "tryon" ? state.modelPhotoId : null, options,
     };
     if (state.mode === "scene" && !body.prompt) return notify("error", "AI Studio", "Write a prompt describing the scene.");
+    if (state.mode === "model" && !body.prompt) return notify("error", "AI Studio", "Describe the person you want (age, hair, build).");
     const btn = $("#generate"); btn.disabled = true;
     try { await api("/api/studio/generate", { method: "POST", body: JSON.stringify(body) }); await loadJobs(); }
     catch (e) { notify("error", "AI Studio", e.message); }
@@ -204,9 +209,11 @@
 
   // ---- jobs ---------------------------------------------------------------
   async function loadJobs() {
-    if (!state.product) return;
-    state.jobs = await api(`/api/studio/jobs?product_id=${encodeURIComponent(state.product.id)}`);
-    renderJobs(); renderProductMedia();
+    const q = state.product ? `?product_id=${encodeURIComponent(state.product.id)}` : "";
+    if (!state.product && state.mode !== "model") return;
+    state.jobs = await api(`/api/studio/jobs${q}`);
+    if (state.mode === "model" || state.jobs.some((j) => j.mode === "model")) loadModelPhotos();
+    renderJobs(); if (state.product) renderProductMedia();
     clearTimeout(state.pollTimer);
     if (state.jobs.some((j) => j.status === "queued" || j.status === "running")) state.pollTimer = setTimeout(loadJobs, 4000);
   }
@@ -224,7 +231,8 @@
         grid.append(el("div", { class: "tile" },
           isVideo ? el("video", { src: a.url, controls: true, muted: true, loop: true, playsinline: true }) : el("img", { src: a.url, alt: "", onclick: () => openLightbox(a, j) }),
           el("div", { class: "actions" },
-            isVideo ? null : el("button", { class: "btn btn-sm btn-primary", onclick: () => attach(a, j) }, "Add to product"),
+            j.mode === "model" ? el("button", { class: "btn btn-sm btn-primary", onclick: () => { state.modelPhotoId = a.id; state.mode = "tryon"; renderModeTabs(); renderModelPhotos(); } }, "Use for try-on")
+              : isVideo ? null : el("button", { class: "btn btn-sm btn-primary", onclick: () => attach(a, j) }, "Add to product"),
             el("a", { class: "btn btn-sm", href: a.url, download: `ai-studio-${a.id.slice(0, 8)}.${a.mime.split("/")[1]}` }, "Download"),
             el("button", { class: "btn btn-sm", onclick: async () => { await api(`/api/studio/assets/${a.id}`, { method: "DELETE" }); loadJobs(); } }, "Delete"))));
       }

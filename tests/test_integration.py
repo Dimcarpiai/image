@@ -212,3 +212,30 @@ def test_install_survives_webhook_rejection(saleor, monkeypatch):
     saleor.reject_webhook = False
     assert r.status_code == 200
     assert db.get_installation(f"127.0.0.1:{saleor.port}").webhook_id is None
+
+
+def test_model_photo_job_lands_in_model_library(saleor, monkeypatch):
+    import asyncio
+    from media_suite.providers import PROVIDERS, Output
+
+    class FakeOpenAI:
+        spec = PROVIDERS["openai"].spec
+        async def generate(self, model, req, api_key):
+            assert req.mode == "model" and req.product_images == []
+            await asyncio.sleep(0.02)
+            b = BytesIO(); Image.new("RGB", (300, 400), (5, 5, 5)).save(b, "PNG")
+            return [Output(b.getvalue(), "image/png")]
+
+    monkeypatch.setitem(PROVIDERS, "openai", FakeOpenAI())
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=_headers(saleor), json={"provider": "openai", "api_key": "sk"})
+        r = c.post("/api/studio/generate", headers=_headers(saleor), json={"mode": "model", "provider": "openai", "model": "gpt-image-2", "prompt": "woman, 30s"})
+        assert r.status_code == 200, r.text
+        jid = r.json()["id"]
+        for _ in range(50):
+            j = c.get(f"/api/studio/jobs/{jid}", headers=_headers(saleor)).json()
+            if j["status"] in ("done", "error"): break
+            time.sleep(0.1)
+        assert j["status"] == "done", j
+        models = c.get("/api/studio/assets?kind=model", headers=_headers(saleor)).json()
+        assert any(m["id"] == j["assets"][0]["id"] for m in models)

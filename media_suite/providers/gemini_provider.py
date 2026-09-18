@@ -4,7 +4,7 @@ from typing import List
 
 import aiohttp
 
-from .base import GenerateRequest, ModelSpec, Output, Provider, ProviderError, ProviderSpec, scene_prompt, tryon_prompt
+from .base import GenerateRequest, ModelSpec, Output, Provider, ProviderError, ProviderSpec, model_photo_prompt, scene_prompt, tryon_prompt
 
 API = "https://generativelanguage.googleapis.com/v1beta/models"
 ASPECTS = ["auto", "1:1", "3:4", "4:3", "9:16", "16:9"]
@@ -17,14 +17,17 @@ class GeminiProvider(Provider):
         key_label="Gemini API key",
         key_help="aistudio.google.com → Get API key.",
         models=[
-            ModelSpec("gemini-3.1-flash-image", "Gemini 3.1 Flash Image", ["scene", "tryon"], options={"aspect_ratio": ASPECTS}),
-            ModelSpec("gemini-3-pro-image", "Gemini 3 Pro Image (highest quality)", ["scene", "tryon"], options={"aspect_ratio": ASPECTS}),
-            ModelSpec("gemini-2.5-flash-image", "Gemini 2.5 Flash Image", ["scene", "tryon"], options={"aspect_ratio": ASPECTS}),
+            ModelSpec("gemini-3.1-flash-image", "Gemini 3.1 Flash Image", ["scene", "tryon", "model"], options={"aspect_ratio": ASPECTS}),
+            ModelSpec("gemini-3-pro-image", "Gemini 3 Pro Image (highest quality)", ["scene", "tryon", "model"], options={"aspect_ratio": ASPECTS}),
+            ModelSpec("gemini-2.5-flash-image", "Gemini 2.5 Flash Image", ["scene", "tryon", "model"], options={"aspect_ratio": ASPECTS}),
         ],
     )
 
     async def generate(self, model: str, req: GenerateRequest, api_key: str) -> List[Output]:
-        if req.mode == "tryon":
+        if req.mode == "model":
+            images, prompt = [], model_photo_prompt(req.prompt)
+            req.options = {**req.options, "aspect_ratio": req.options.get("aspect_ratio") if req.options.get("aspect_ratio") not in (None, "auto") else "3:4"}
+        elif req.mode == "tryon":
             if not req.model_image:
                 raise ProviderError("a model photo is required for try-on")
             images = [req.model_image, *req.product_images]
