@@ -211,7 +211,7 @@
   const cleanOpts = () => { const { selectedColors, pack, ...rest } = S.opts; return rest; };
   function renderAdvanced() {
     const ps = $("#adv-provider"); ps.replaceChildren(el("option", { value: "" }, "Automatic")); for (const p of S.catalog.providers.filter((p) => p.configured)) ps.append(el("option", { value: p.id }, p.label));
-    ps.onchange = () => { const ms = $("#adv-model"); ms.replaceChildren(el("option", { value: "" }, "Automatic")); const p = S.catalog.providers.find((x) => x.id === ps.value); for (const m of p?.models || []) ms.append(el("option", { value: m.id }, m.label)); updateEstimate(); };
+    ps.onchange = () => { const ms = $("#adv-model"); ms.replaceChildren(el("option", { value: "" }, "Automatic (first suitable)")); const p = S.catalog.providers.find((x) => x.id === ps.value); const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task]; for (const m of (p?.models || []).filter((m) => m.modes.includes(mode))) ms.append(el("option", { value: m.id }, m.label)); updateEstimate(); };
     $("#adv-n").onchange = updateEstimate; $("#adv-model").onchange = updateEstimate;
   }
   const advanced = () => ({ provider: $("#adv-provider").value || null, model: $("#adv-model").value || null, n: Number($("#adv-n").value), size: $("#adv-size").value || null });

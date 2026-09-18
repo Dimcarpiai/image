@@ -208,3 +208,12 @@ def test_sku_generation_and_qr(saleor):
         assert q["items"][0]["url"] == "https://rostau.de/p/rugby-shirt" and q["items"][1]["url"] == "https://rostau.de/p/rugby-shirt?variant=R-BUR-S"
         png_resp = c.get("/api/studio/qr", headers=H(saleor), params={"url": q["items"][1]["url"], "label": "R-BUR-S"})
         assert png_resp.status_code == 200 and _I.open(BytesIO(png_resp.content)).size == (512, 556)
+
+
+def test_explicit_provider_without_model(saleor, monkeypatch):
+    stab = Recorder(PROVIDERS["stability"]); monkeypatch.setitem(PROVIDERS, "stability", stab)
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=H(saleor), json={"provider": "stability", "api_key": "k"})
+        r = c.post("/api/studio/run", headers=H(saleor), json={"task": "product", "product_id": "P1", "refs": {"product_urls": [saleor.base + "/media/front.png"]}, "advanced": {"provider": "stability"}}).json()
+        assert (r["provider"], r["model"]) == ("stability", "relight")
+        wait_done(c, saleor)

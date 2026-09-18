@@ -36,13 +36,22 @@ PROMPT_AWARE = {"openai", "gemini"}
 
 def pick_provider(domain: str, mode: str, advanced: Optional[dict]) -> tuple:
     keys = db.get_settings(domain).get("keys", {})
-    if advanced and advanced.get("provider") and advanced.get("model"):
-        if not keys.get(advanced["provider"]):
-            raise HTTPException(status_code=400, detail=f"no API key for {advanced['provider']}")
-        spec = find_model(advanced["provider"], advanced["model"])
-        if not spec or mode not in spec.modes:
-            raise HTTPException(status_code=400, detail="that provider/model does not support this task")
-        return advanced["provider"], advanced["model"]
+    if advanced and advanced.get("provider"):
+        prov = advanced["provider"]
+        if not keys.get(prov):
+            raise HTTPException(status_code=400, detail=f"no API key for {prov}")
+        if advanced.get("model"):
+            spec = find_model(prov, advanced["model"])
+            if not spec or mode not in spec.modes:
+                raise HTTPException(status_code=400, detail="that provider/model does not support this task")
+            return prov, advanced["model"]
+        preferred = next((m for pv, m in PREFERRED[mode] if pv == prov), None)
+        if preferred:
+            return prov, preferred
+        first = next((m.id for m in PROVIDERS[prov].spec.models if mode in m.modes), None)
+        if not first:
+            raise HTTPException(status_code=400, detail=f"{prov} has no model for this task")
+        return prov, first
     for prov, model in PREFERRED[mode]:
         if keys.get(prov) and find_model(prov, model):
             return prov, model
