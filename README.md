@@ -15,7 +15,7 @@ the compatibility fixes for current Starlette/Saleor 3.21 applied.
 Optional fifth provider **Local GPU (CatVTON)**: point it at your own try-on server (see the separate
 `catvton-server` package) via `https://<tunnel-url>|<token>` in the API keys panel. CatVTON is CC BY-NC-SA (non-commercial).
 
-- **Product Builder** (API only for now; the dashboard page is disabled in 0.8.0) — upload supplier photos or pick AI Studio results →
+- **Product Builder** — Catalog → Product Builder: upload supplier photos or pick AI Studio results →
   *Draft with AI* (name, DE/EN descriptions, attributes, SEO, alt text; needs an OpenAI or Gemini key) →
   variant matrix (size × colour …) with SKU pattern (`{brand}-{style}-{color:3}-{size}`), price per channel,
   stock per warehouse → creates the product, variants, channel listings, images (per-variant assignment) and the
