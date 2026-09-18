@@ -197,3 +197,11 @@ button, input, select { font: inherit; color: inherit; }
 .gen-form label { font-size: 13px; }
 .gen-form select, .gen-form textarea { font-size: 14px; }
 .job-head { align-items: center; }
+
+/* ---- long prompts must never widen the page ---- */
+.app, .work, .jobs, .job { min-width: 0; max-width: 100%; overflow-x: hidden; }
+.job-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.job-head > span:first-child { white-space: nowrap; }
+.job-head .prompt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gen-form textarea { max-width: 100%; box-sizing: border-box; }
+.tile .cap { max-width: 100%; }
