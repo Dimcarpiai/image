@@ -185,7 +185,7 @@ def test_review_queue_and_pack(saleor, monkeypatch):
             c.put("/api/studio/keys", headers=H(saleor), json={"provider": pid, "api_key": "k"})
         presets = c.get("/api/studio/presets", headers=H(saleor)).json()
         assert any(p["id"] == "onmodel" for p in presets)
-        r = c.post("/api/studio/pack", headers=H(saleor), json={"product_id": "P1", "product_image_urls": [saleor.base + "/media/a.png"]}).json()
+        r = c.post("/api/studio/pack-presets", headers=H(saleor), json={"product_id": "P1", "product_image_urls": [saleor.base + "/media/a.png"]}).json()
         assert len(r["started"]) == 2                      # studio + lifestyle; on-model skipped (no fal key + no model photo)
         assert any("no model photo" in s["reason"] or "no fal key" in s["reason"] for s in r["skipped"])
         for _ in range(60):
@@ -301,7 +301,7 @@ def test_settings_budget_estimate_and_bulk(saleor, monkeypatch):
         assert r.status_code == 402
         c.put("/api/studio/settings", headers=H(saleor), json={"daily_budget_eur": 0})
         # bulk pack: placeholders filled from product attributes, category auto-detected
-        r = c.post("/api/studio/pack-bulk", headers=H(saleor), json={"product_ids": ["P1", "P2"], "preset_ids": ["studio", "lifestyle"]}).json()
+        r = c.post("/api/studio/pack-presets-bulk", headers=H(saleor), json={"product_ids": ["P1", "P2"], "preset_ids": ["studio", "lifestyle"]}).json()
         assert r["started"] == 4 and len(r["results"]) == 2
         jobs = c.get("/api/studio/jobs?product_id=P1", headers=H(saleor)).json()
         assert any(j["input"].get("batch") == r["batch"] for j in jobs)

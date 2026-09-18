@@ -34,6 +34,23 @@ Optional fifth provider **Local GPU (CatVTON)**: point it at your own try-on ser
 - **Edit details** (AI Studio, 0.7.0) — edit the selected product in place: name, slug, category, description, SEO,
   product attributes, German translation, and per-variant SKU / price per channel / stock per warehouse. Product images
   can be removed with the ✕ on each tile.
+- **1.0.0 — catalog-production workflow.** AI Studio is now: *Select product → Select task → Add references →
+  Generate → Publish*. Providers, models, sizes and variations live under *Advanced settings*; the base prompt is
+  built from Saleor data (title, category, colour, material, attributes), so nothing is typed twice.
+  - **Tasks**: Product photo · On model · Colour variants · Product pack · Edit image · Video.
+  - **Product Lock**: shape, fabric, pattern, collar, buttons, logo, colour — locked parts are instructed to stay identical.
+  - **Model Lock**: on any on-model result → *Keep this model*; every later on-model job reuses that person.
+  - **Colour variants**: reads variant colours from Saleor and recolours an approved image per colour, tagging each
+    result with its variant so *Add to variant* is one click.
+  - **Packs** (one button + selector): Product (front/back/side/detail), Model (front/side/walking/close-up),
+    Marketing (studio/lifestyle/social).
+  - **Typed references**: Product, Model, Fabric, Style (*use style from another product* — camera, background,
+    lighting, crop), Logo. **Pose presets**, **backgrounds** (white/grey/beige/transparent/custom), **logo control**
+    (keep/remove/add), **partial edits** (remove logo, change colour, fix collar/sleeve, change trousers/background).
+  - **Publishing** per result: Add to product · Add to variant · Set as thumbnail · Approve · Delete (results remember
+    their product and variant). **Bulk**: one action for all selected products. **Looks**: collection consistency
+    (same model, background, pose, locks). **Quality check** (Ready / Needs review + issue) via the vision LLM.
+    **Version history** V1/V2/V3 per image with *Use as source*.
 - **0.9.0 — throughput features & new layout.** AI Studio is now four tabs: *Studio* (products with bulk selection,
   references, generation, results), *Review* (queue with Approve / Main / Other product / Reject and a keyboard
   *Compare view*: ← → A M R), *Library*, *Settings*. Plus:

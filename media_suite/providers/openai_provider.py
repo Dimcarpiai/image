@@ -18,10 +18,10 @@ class OpenAIProvider(Provider):
         key_label="OpenAI API key",
         key_help="platform.openai.com → API keys. Image models may require organization verification.",
         models=[
-            ModelSpec("gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst (best editing)", ["scene", "tryon", "model"], options={"size": SIZES, "quality": QUALITIES}),
-            ModelSpec("gpt-image-2.5-flare", "GPT Image 2.5 Flare (fast)", ["scene", "tryon", "model"], options={"size": SIZES, "quality": QUALITIES}),
-            ModelSpec("gpt-image-2", "GPT Image 2", ["scene", "tryon", "model"], options={"size": SIZES, "quality": QUALITIES}),
-            ModelSpec("gpt-image-1.5", "GPT Image 1.5", ["scene", "tryon", "model"], options={"size": SIZES, "quality": QUALITIES}),
+            ModelSpec("gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst (best editing)", ["scene", "tryon", "model", "edit"], options={"size": SIZES, "quality": QUALITIES}),
+            ModelSpec("gpt-image-2.5-flare", "GPT Image 2.5 Flare (fast)", ["scene", "tryon", "model", "edit"], options={"size": SIZES, "quality": QUALITIES}),
+            ModelSpec("gpt-image-2", "GPT Image 2", ["scene", "tryon", "model", "edit"], options={"size": SIZES, "quality": QUALITIES}),
+            ModelSpec("gpt-image-1.5", "GPT Image 1.5", ["scene", "tryon", "model", "edit"], options={"size": SIZES, "quality": QUALITIES}),
         ],
     )
 
@@ -29,14 +29,18 @@ class OpenAIProvider(Provider):
         if req.mode == "model":
             return await self._text_to_image(model, model_photo_prompt(req.prompt), req, api_key)
         images: List[ImageInput] = []
+        raw = bool(req.options.get("raw_prompt"))
         if req.mode == "tryon":
             if not req.model_image:
                 raise ProviderError("a model photo is required for try-on")
-            images = [req.model_image, *req.product_images]
-            prompt = tryon_prompt(req.prompt)
+            images = [*req.product_images, req.model_image] if raw else [req.model_image, *req.product_images]
+            prompt = req.prompt if raw else tryon_prompt(req.prompt)
+        elif req.mode == "edit":
+            images = list(req.product_images)          # source image first, then references
+            prompt = req.prompt
         else:
             images = list(req.product_images)
-            prompt = scene_prompt(req.prompt)
+            prompt = req.prompt if raw else scene_prompt(req.prompt)
         if not images:
             raise ProviderError("at least one reference image is required")
 

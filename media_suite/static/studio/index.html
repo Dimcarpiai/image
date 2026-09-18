@@ -4,16 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.9.1">
+  <link rel="stylesheet" href="/static/app.css?v=1.0.0">
 </head>
 <body>
   <main id="app" class="app studio" hidden>
     <header class="topbar">
-      <div><h1>AI Studio</h1><p class="muted" id="topline">Product photos, on-model shots and clips — with review before anything goes live.</p></div>
-      <nav class="tabs top-tabs" id="top-tabs">
+      <div><h1>AI Studio</h1><p class="muted">Select product → task → references → generate → publish.</p></div>
+      <nav class="tabs top-tabs">
         <button class="tab active" data-view="studio">Studio</button>
         <button class="tab" data-view="review">Review <span class="badge badge-warn" id="review-count">0</span></button>
-        <button class="tab" data-view="library">Library</button>
         <button class="tab" data-view="settings">Settings</button>
       </nav>
     </header>
@@ -22,61 +21,45 @@
     <section class="view" data-view="studio">
       <div class="layout">
         <aside class="panel side">
-          <div class="panel-head"><h2>Products</h2><label class="check small"><input type="checkbox" id="select-all"> select all</label></div>
-          <div class="side-search"><input type="search" id="search" placeholder="Search products" aria-label="Search products"></div>
-          <div class="bulk-bar" id="bulk-bar" hidden>
-            <span id="bulk-count">0 selected</span>
-            <button class="btn btn-sm btn-primary" id="bulk-pack">Generate pack for selected</button>
-          </div>
+          <div class="panel-head"><h2>1 · Product</h2><label class="check small"><input type="checkbox" id="select-all"> all</label></div>
+          <div class="side-search"><input type="search" id="search" placeholder="Search products"></div>
+          <div class="bulk-bar" id="bulk-bar" hidden><span id="bulk-count"></span><button class="btn btn-sm btn-primary" id="bulk-go">Run for selected…</button></div>
           <ul class="product-list" id="product-list"></ul>
-          <div class="table-foot"><span id="page-info"></span><button class="btn btn-sm" id="load-more" hidden>Load more</button></div>
+          <div class="table-foot"><span id="page-info"></span><button class="btn btn-sm" id="load-more" hidden>More</button></div>
         </aside>
 
         <section class="work">
-          <div class="panel" id="empty-state"><div class="empty-state"><strong>Pick a product to start</strong><span>Choose one on the left. Tick several and use “Generate pack for selected” to do them all at once.</span></div></div>
+          <div class="panel" id="empty-state"><div class="empty-state"><strong>Pick a product to start</strong><span>Then choose a task. Tick several products for bulk actions.</span></div></div>
 
           <div id="workspace" hidden>
+            <!-- 2 · task -->
             <section class="panel">
-              <div class="panel-head">
-                <div><h2 id="product-title">Product</h2><span class="muted" id="product-sub"></span></div>
-                <div class="btn-row">
-                  <button class="btn btn-sm" id="edit-product"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Edit details</button>
-                  <button class="btn btn-sm" id="clone-product"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Clone product</button>
-                  <button class="btn btn-sm btn-primary" id="generate-pack">Generate pack</button>
-                </div>
-              </div>
-              <div class="between pad">
-                <p class="muted">References — tick what the AI should work from.</p>
-                <div class="btn-row"><button class="btn btn-sm" id="open-library">Library</button><button class="btn btn-sm" id="open-picker">Other products</button><label class="btn btn-sm">Upload <input type="file" id="ref-upload" accept="image/*" multiple hidden></label><button class="btn btn-sm" id="ref-url">URL / page</button></div>
-              </div>
-              <div class="media-grid" id="product-media"></div>
+              <div class="panel-head"><div><h2 id="product-title">Product</h2><span class="muted" id="product-sub"></span></div>
+                <div class="btn-row"><button class="btn btn-sm" id="edit-product">Edit details</button><button class="btn btn-sm" id="clone-product">Clone</button></div></div>
+              <div class="task-grid" id="task-grid"></div>
             </section>
 
-            <section class="panel">
-              <div class="panel-head"><div class="tabs" id="mode-tabs" role="tablist"></div><p class="muted" id="mode-help"></p></div>
-              <div class="gen-form">
+            <!-- 3 · references + options -->
+            <section class="panel" id="refs-panel">
+              <div class="panel-head"><h2>3 · References & options</h2><span class="muted" id="task-help"></span></div>
+              <div class="refs" id="refs"></div>
+              <div class="gen-form" id="options"></div>
+              <details class="advanced"><summary>Advanced settings</summary>
                 <div class="row4">
-                  <label>Preset <select id="preset"><option value="">— none —</option></select></label>
-                  <label>Provider <select id="provider"></select></label>
-                  <label>Model <select id="model"></select></label>
-                  <label>Variations <select id="count"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+                  <label>Provider <select id="adv-provider"><option value="">Automatic</option></select></label>
+                  <label>Model <select id="adv-model"><option value="">Automatic</option></select></label>
+                  <label>Variations <select id="adv-n"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+                  <label>Size <select id="adv-size"><option value="">Automatic</option><option value="1024x1536">Portrait 3:4</option><option value="1024x1024">Square</option><option value="1536x1024">Landscape</option></select></label>
                 </div>
-                <div id="model-options" class="row-inline"></div>
-                <div id="model-photo-block" hidden>
-                  <div class="between"><h3>Model photo</h3><label class="btn btn-sm">Upload photo <input type="file" id="model-upload" accept="image/*" hidden></label></div>
-                  <div class="media-grid small" id="model-photos"></div>
-                </div>
-                <label>Prompt <span class="hint">placeholders: {product} {color} {material} {category}</span><textarea id="prompt" rows="3"></textarea></label>
-                <div class="between">
-                  <span class="muted" id="cost-hint"></span>
-                  <div class="btn-row"><button class="btn btn-sm" id="save-preset">Save as preset</button><button class="btn btn-primary" id="generate">Generate</button></div>
-                </div>
-              </div>
+                <label>Extra instructions <span class="hint">optional</span><input id="adv-extra" placeholder="e.g. slightly warmer light"></label>
+              </details>
+              <div class="between gen-foot"><span class="muted" id="cost-hint"></span><button class="btn btn-primary" id="generate">Generate</button></div>
             </section>
 
+            <!-- results -->
             <section class="panel">
-              <div class="panel-head"><h2>Results</h2><button class="btn btn-quiet" id="refresh-jobs">Refresh</button></div>
-              <div id="jobs" class="jobs"></div>
+              <div class="panel-head"><h2>Results</h2><button class="btn btn-quiet" id="refresh-results">Refresh</button></div>
+              <div id="results" class="jobs"></div>
             </section>
           </div>
         </section>
@@ -86,18 +69,9 @@
     <!-- ================= REVIEW ================= -->
     <section class="view" data-view="review" hidden>
       <section class="panel">
-        <div class="panel-head"><h2>Review queue</h2><div class="btn-row"><button class="btn btn-sm" id="compare-start">Compare view (keyboard)</button><button class="btn btn-quiet" id="refresh-review">Refresh</button></div></div>
-        <p class="muted pad">Generated images wait here. <b>Approve</b> attaches to the product, <b>Main</b> attaches and makes it the first image, <b>Reject</b> deletes. In Compare view use ← → to move, <kbd>A</kbd> approve, <kbd>M</kbd> approve as main, <kbd>R</kbd> reject.</p>
+        <div class="panel-head"><h2>Review</h2><div class="btn-row"><button class="btn btn-sm" id="compare-start">Compare (keyboard)</button><button class="btn btn-quiet" id="refresh-review">Refresh</button></div></div>
+        <p class="muted pad">Images wait here until approved. Compare: ← → move · <kbd>A</kbd> add to product · <kbd>T</kbd> set as thumbnail · <kbd>R</kbd> delete.</p>
         <div class="media-grid" id="review-grid"></div>
-      </section>
-    </section>
-
-    <!-- ================= LIBRARY ================= -->
-    <section class="view" data-view="library" hidden>
-      <section class="panel">
-        <div class="panel-head"><h2>Image library</h2><label class="btn btn-sm">Upload <input type="file" id="library-upload" accept="image/*" multiple hidden></label></div>
-        <p class="muted pad">Uploaded and imported pictures. Tick to add as reference for the current product; ✕ deletes.</p>
-        <div id="library-grid" class="media-grid"></div>
       </section>
     </section>
 
@@ -106,59 +80,43 @@
       <div class="settings-grid2">
         <section class="panel"><div class="panel-head"><h2>Provider API keys</h2></div><div class="keys" id="keys"></div></section>
         <section class="panel">
-          <div class="panel-head"><h2>Automation & budget</h2></div>
+          <div class="panel-head"><h2>Model & looks</h2></div>
           <div class="gen-form">
-            <label class="check"><input type="checkbox" id="st-auto"> Run the default pack automatically when a product gets its first image (results wait in Review)</label>
-            <label class="check"><input type="checkbox" id="st-clean"> Clean uploads: remove background, white, square (needs a Stability key)</label>
-            <div class="row2">
-              <label>Daily budget (EUR) <span class="hint">0 = no limit</span><input type="number" id="st-budget" min="0" step="1"></label>
-              <label>Notify when review queue reaches <span class="hint">0 = off</span><input type="number" id="st-threshold" min="0" step="1"></label>
-            </div>
-            <label>Notification webhook URL <span class="hint">Slack/Teams incoming webhook; gets {"text": …} on pack completion and queue alerts</span><input id="st-notify" placeholder="https://hooks.slack.com/services/…"></label>
+            <div id="locked-model-box"></div>
+            <h3>Looks (collection consistency)</h3>
+            <p class="muted">A look fixes model, background, pose and locks for every product — pick it when generating or in bulk.</p>
+            <div id="looks-list"></div>
+            <div class="row3"><label>Name <input id="look-name" placeholder="Winter Polo Collection"></label>
+              <label>Background <select id="look-bg"></select></label><label>Pose <select id="look-pose"></select></label></div>
+            <div class="between"><label class="check"><input type="checkbox" id="look-use-model" checked> use the locked model</label><button class="btn btn-sm" id="look-save">Save look</button></div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><h2>Automation</h2></div>
+          <div class="gen-form">
+            <label class="check"><input type="checkbox" id="st-auto"> Generate a product pack automatically when a product gets its first image</label>
+            <label class="check"><input type="checkbox" id="st-clean"> Clean uploads (remove background, white, square — needs Stability key)</label>
+            <div class="row2"><label>Daily budget (EUR) <input type="number" id="st-budget" min="0"></label><label>Notify webhook (Slack/Teams) <input id="st-notify"></label></div>
+            <div class="row2"><label>Storefront revalidate URL <input id="sf-url"></label><label>Revalidate secret <input id="sf-secret" type="password" placeholder="leave empty to keep"></label></div>
             <p class="muted" id="st-stats"></p>
             <div class="between"><span class="muted" id="st-msg"></span><button class="btn btn-primary btn-sm" id="st-save">Save</button></div>
-          </div>
-        </section>
-        <section class="panel">
-          <div class="panel-head"><h2>Default model photo per product type</h2></div>
-          <div class="gen-form">
-            <p class="muted">Used by packs and auto-runs when no model photo is selected. “*” is the fallback for all types.</p>
-            <div id="default-models"></div>
-            <div class="row3"><label>Product type <input id="dm-type" placeholder="e.g. Shirt or *"></label><label>Model photo <select id="dm-asset"></select></label><label>&nbsp;<button class="btn btn-sm" id="dm-add">Set</button></label></div>
-          </div>
-        </section>
-        <section class="panel">
-          <div class="panel-head"><h2>Storefront</h2></div>
-          <div class="gen-form">
-            <div class="row2">
-              <label>Revalidate URL <span class="hint">called after images/products change</span><input id="sf-url" placeholder="https://rostau.de/api/revalidate"></label>
-              <label>Secret <span class="hint">sent as Bearer token</span><input id="sf-secret" type="password" placeholder="leave empty to keep"></label>
-            </div>
-            <div class="between"><span class="muted" id="sf-msg"></span><button class="btn btn-sm" id="sf-save">Save storefront settings</button></div>
           </div>
         </section>
       </div>
     </section>
   </main>
 
-  <div id="waiting" class="waiting"><p>Connecting to the Saleor dashboard…</p><p class="muted">Open this page from the Saleor dashboard under Catalog → AI Studio.</p></div>
+  <div id="waiting" class="waiting"><p>Connecting to the Saleor dashboard…</p></div>
 
   <!-- dialogs -->
-  <dialog id="ask" class="lightbox"><div class="gen-form" style="width:min(460px,88vw)"><h3 id="ask-title"></h3><p class="muted" id="ask-text"></p><label id="ask-input-wrap" hidden>Value <input id="ask-input"></label><label class="check" id="ask-check-wrap" hidden><input type="checkbox" id="ask-check"> <span id="ask-check-label"></span></label><div class="between"><span></span><div class="btn-row"><button class="btn" id="ask-no">Cancel</button><button class="btn btn-primary" id="ask-yes">OK</button></div></div></div></dialog>
-
-  <dialog id="compare" class="lightbox compare">
-    <form method="dialog" class="preview-head"><h2 id="compare-title">Compare</h2><span class="muted" id="compare-pos"></span><button class="btn btn-quiet">Close</button></form>
-    <div class="compare-body"><button class="btn nav" id="cmp-prev">←</button><figure><img id="cmp-img" alt=""><figcaption id="cmp-cap"></figcaption></figure><button class="btn nav" id="cmp-next">→</button></div>
-    <div class="compare-actions"><button class="btn" id="cmp-reject">Reject (R)</button><button class="btn" id="cmp-approve">Approve (A)</button><button class="btn btn-primary" id="cmp-main">Approve as main (M)</button></div>
-  </dialog>
-
-  <dialog id="page-picker" class="lightbox picker"><form method="dialog" class="preview-head"><h2>Images from a page or URL</h2><button class="btn btn-quiet">Close</button></form><div class="picker-body"><div class="side-search" style="display:flex; gap:8px"><input type="search" id="page-url" placeholder="https://uk.pinterest.com/pin/… or any page / image URL" style="flex:1"><button class="btn btn-sm" id="page-go">Fetch</button></div><p class="muted" style="padding:8px 16px 0" id="page-msg">Tick images to import them as references, or “Clone product with this” on one.</p><div id="page-grid" class="media-grid"></div><div class="panel-foot"><span class="muted" id="page-count"></span><button class="btn btn-sm" id="page-import">Import selected as references</button></div></div></dialog>
-  <dialog id="picker" class="lightbox picker"><form method="dialog" class="preview-head"><h2>Images from other products</h2><button class="btn btn-quiet">Close</button></form><div class="picker-body"><div class="side-search"><input type="search" id="picker-search" placeholder="Search products"></div><div id="picker-grid" class="media-grid"></div></div></dialog>
-  <dialog id="product-chooser" class="lightbox picker"><form method="dialog" class="preview-head"><h2>Add image to which product?</h2><button class="btn btn-quiet">Cancel</button></form><div class="picker-body"><div class="side-search"><input type="search" id="chooser-search" placeholder="Search products"></div><ul class="product-list" id="chooser-list"></ul></div></dialog>
-  <dialog id="edit-dialog" class="lightbox picker"><form method="dialog" class="preview-head"><h2 id="edit-title">Edit product</h2><button class="btn btn-quiet">Cancel</button></form><div class="picker-body gen-form"><div class="row2"><label>Name <input id="ed-name"></label><label>Slug <input id="ed-slug"></label></div><div class="row2"><label>Category <select id="ed-category"></select></label><label>SEO title <input id="ed-seo-title" maxlength="70"></label></div><label>Description <span class="hint">blank line = new paragraph</span><textarea id="ed-desc" rows="5"></textarea></label><label>SEO description <input id="ed-seo-desc" maxlength="155"></label><div id="ed-attrs" class="row3"></div><h3>German translation</h3><div class="row2"><label>Name (DE) <input id="ed-name-de"></label><label>SEO title (DE) <input id="ed-seo-title-de" maxlength="70"></label></div><label>Description (DE) <textarea id="ed-desc-de" rows="4"></textarea></label><label>SEO description (DE) <input id="ed-seo-desc-de" maxlength="155"></label><h3>Variants</h3><div class="table-wrap"><table class="products" id="ed-variants"></table></div><div class="between"><span class="muted" id="ed-msg"></span><button class="btn btn-primary" id="ed-save">Save to Saleor</button></div></div></dialog>
-  <dialog id="clone-dialog" class="lightbox"><form method="dialog" class="preview-head"><h2>Clone product</h2><button class="btn btn-quiet">Cancel</button></form><div class="gen-form" style="width:min(640px,88vw)"><p class="muted">Creates a new product as a copy of the current one (type, category, attributes, description, channels, variants, prices) with the chosen images attached.</p><label>New product name <input id="clone-name"></label><div class="row2"><label>New colour <span class="hint">replaces the colour attribute; colour code swapped in SKUs</span><input id="clone-color" placeholder="e.g. Navy"></label><label>SKU suffix <span class="hint">optional</span><input id="clone-suffix"></label></div><label class="check"><input type="checkbox" id="clone-images" checked> Copy the source product's existing images</label><label class="check"><input type="checkbox" id="clone-stock"> Copy stock quantities (otherwise 0)</label><div class="between"><span class="muted" id="clone-msg"></span><button class="btn btn-primary" id="clone-go">Create product</button></div></div></dialog>
+  <dialog id="ask" class="lightbox"><div class="gen-form" style="width:min(460px,88vw)"><h3 id="ask-title"></h3><p class="muted" id="ask-text"></p><label id="ask-input-wrap" hidden>Value <input id="ask-input"></label><div id="ask-select-wrap" hidden><label>Choose <select id="ask-select"></select></label></div><div class="between"><span></span><div class="btn-row"><button class="btn" id="ask-no">Cancel</button><button class="btn btn-primary" id="ask-yes">OK</button></div></div></div></dialog>
+  <dialog id="compare" class="lightbox compare"><form method="dialog" class="preview-head"><h2 id="compare-title"></h2><span class="muted" id="compare-pos"></span><button class="btn btn-quiet">Close</button></form><div class="compare-body"><button class="btn nav" id="cmp-prev">←</button><figure><img id="cmp-img" alt=""><figcaption id="cmp-cap"></figcaption></figure><button class="btn nav" id="cmp-next">→</button></div><div class="compare-actions"><button class="btn" id="cmp-reject">Delete (R)</button><button class="btn" id="cmp-approve">Add to product (A)</button><button class="btn btn-primary" id="cmp-main">Set as thumbnail (T)</button></div></dialog>
+  <dialog id="picker" class="lightbox picker"><form method="dialog" class="preview-head"><h2 id="picker-title">Choose image</h2><button class="btn btn-quiet">Close</button></form><div class="picker-body"><div class="side-search" style="display:flex;gap:8px"><input type="search" id="picker-search" placeholder="Search products, or paste a page / image URL" style="flex:1"><label class="btn btn-sm">Upload <input type="file" id="picker-upload" accept="image/*" multiple hidden></label></div><div id="picker-grid" class="media-grid"></div></div></dialog>
+  <dialog id="versions" class="lightbox picker"><form method="dialog" class="preview-head"><h2>Versions</h2><button class="btn btn-quiet">Close</button></form><div class="picker-body"><div id="versions-grid" class="media-grid"></div></div></dialog>
+  <dialog id="edit-dialog" class="lightbox picker"><form method="dialog" class="preview-head"><h2 id="edit-title">Edit product</h2><button class="btn btn-quiet">Cancel</button></form><div class="picker-body gen-form"><div class="row2"><label>Name <input id="ed-name"></label><label>Slug <input id="ed-slug"></label></div><div class="row2"><label>Category <select id="ed-category"></select></label><label>SEO title <input id="ed-seo-title" maxlength="70"></label></div><label>Description <textarea id="ed-desc" rows="5"></textarea></label><label>SEO description <input id="ed-seo-desc" maxlength="155"></label><div id="ed-attrs" class="row3"></div><h3>German</h3><div class="row2"><label>Name (DE) <input id="ed-name-de"></label><label>SEO title (DE) <input id="ed-seo-title-de" maxlength="70"></label></div><label>Description (DE) <textarea id="ed-desc-de" rows="4"></textarea></label><label>SEO description (DE) <input id="ed-seo-desc-de" maxlength="155"></label><h3>Variants</h3><div class="table-wrap"><table class="products" id="ed-variants"></table></div><div class="between"><span class="muted" id="ed-msg"></span><button class="btn btn-primary" id="ed-save">Save</button></div></div></dialog>
+  <dialog id="clone-dialog" class="lightbox"><form method="dialog" class="preview-head"><h2>Clone product</h2><button class="btn btn-quiet">Cancel</button></form><div class="gen-form" style="width:min(600px,88vw)"><label>New name <input id="clone-name"></label><div class="row2"><label>New colour <input id="clone-color" placeholder="e.g. Navy"></label><label>SKU suffix <input id="clone-suffix"></label></div><label class="check"><input type="checkbox" id="clone-images" checked> copy existing images</label><label class="check"><input type="checkbox" id="clone-stock"> copy stock</label><div class="between"><span class="muted" id="clone-msg"></span><button class="btn btn-primary" id="clone-go">Create</button></div></div></dialog>
   <dialog id="lightbox" class="lightbox"><form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form><div id="lightbox-body"></div></dialog>
 
-  <script src="/static/studio/app.js?v=0.9.1"></script>
+  <script src="/static/studio/app.js?v=1.0.0"></script>
 </body>
 </html>

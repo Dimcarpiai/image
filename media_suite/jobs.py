@@ -82,6 +82,12 @@ def provider_key(domain: str, provider_id: str) -> str:
 async def _load_inputs(installation: Installation, job: dict) -> GenerateRequest:
     inp = job["input"]
     product_images: List[ImageInput] = []
+    # edits / variants: the source image must come first
+    for asset_id in inp.get("source_first_asset_ids", []):
+        a = db.get_asset(job["domain"], asset_id)
+        if a and a["mime"].startswith("image/"):
+            with open(a["path"], "rb") as f:
+                product_images.append(normalize_image(f.read()))
     async with SaleorAPI(installation.saleor_api_url, installation.auth_token) as api:
         for url in inp.get("product_image_urls", [])[:4]:
             own = _own_asset_from_url(job["domain"], url)
@@ -96,6 +102,20 @@ async def _load_inputs(installation: Installation, job: dict) -> GenerateRequest
         if a and a["mime"].startswith("image/"):
             with open(a["path"], "rb") as f:
                 product_images.append(normalize_image(f.read()))
+    for asset_id in inp.get("extra_ref_asset_ids", [])[:4]:     # fabric / style / logo references, in that order
+        a = db.get_asset(job["domain"], asset_id)
+        if a and a["mime"].startswith("image/"):
+            with open(a["path"], "rb") as f:
+                product_images.append(normalize_image(f.read()))
+    for url in inp.get("extra_ref_urls", [])[:3]:
+        own = _own_asset_from_url(job["domain"], url)
+        if own:
+            with open(own["path"], "rb") as f:
+                product_images.append(normalize_image(f.read()))
+        else:
+            _check_public_url(url)
+            async with SaleorAPI(installation.saleor_api_url, installation.auth_token) as api:
+                product_images.append(normalize_image(await api.download(url)))
     model_image: Optional[ImageInput] = None
     if inp.get("model_asset_id"):
         a = db.get_asset(job["domain"], inp["model_asset_id"])
@@ -131,15 +151,23 @@ async def _run(installation: Installation, job_id: str):
             for i, out in enumerate(outputs):
                 hint = f"{job_id}-{i}"
                 path = save_bytes("models" if kind == "model" else "generated", hint, out.data, out.mime)
+                parent = job["input"].get("parent_asset_id")
+                version = (db.get_asset(installation.domain, parent) or {}).get("meta", {}).get("version", 0) + 1 if parent else 1
                 asset = db.add_asset(installation.domain, kind, out.mime, path, product_id=job["product_id"],
-                                     label=(job["input"].get("prompt") or "AI model")[:120],
+                                     label=(job["input"].get("label") or job["input"].get("prompt") or "AI model")[:120],
                                      meta={"job_id": job_id, "mode": job["mode"], "provider": job["provider"], "model": job["model"],
-                                           "status": "review" if kind == "generated" else "approved", "preset": job["input"].get("preset", "")})
+                                           "status": "review" if kind == "generated" else "approved", "preset": job["input"].get("preset", ""),
+                                           "task": job["input"].get("task", ""), "variant_id": job["input"].get("variant_id"),
+                                           "parent_id": parent, "version": version, "batch": job["input"].get("batch"),
+                                           "product_ref_url": (job["input"].get("product_image_urls") or [None])[0]})
                 asset_ids.append(asset["id"])
             db.update_job(job_id, "done", asset_ids=asset_ids)
             from .providers import estimate
             db.add_spend(installation.domain, estimate(job["provider"], job["model"], job["mode"], len(outputs))["cost_eur"], job_id)
             await _after_job(installation, job)
+            if job["mode"] in ("scene", "tryon", "edit"):
+                for aid in asset_ids:
+                    asyncio.create_task(_qc(installation, aid))
         except asyncio.TimeoutError:
             db.update_job(job_id, "error", error="generation timed out")
         except ProviderError as exc:
@@ -149,6 +177,36 @@ async def _run(installation: Installation, job_id: str):
             db.update_job(job_id, "error", error=f"{type(exc).__name__}: {exc}")
         finally:
             _running.pop(job_id, None)
+
+
+async def _qc(installation: Installation, asset_id: str):
+    """Quality check with the drafting LLM (vision): compares the result with the product reference."""
+    try:
+        from .llm import qc_check, DEFAULT_MODELS
+        st = db.get_settings(installation.domain)
+        keys = st.get("keys", {})
+        provider = st.get("llm", {}).get("provider") or next((p for p in ("openai", "gemini", "local") if keys.get(p)), "")
+        if not provider or not keys.get(provider):
+            return
+        asset = db.get_asset(installation.domain, asset_id)
+        if not asset:
+            return
+        with open(asset["path"], "rb") as f:
+            generated = normalize_image(f.read(), 1024)
+        reference = None
+        ref_url = asset["meta"].get("product_ref_url")
+        if ref_url:
+            own = _own_asset_from_url(installation.domain, ref_url)
+            if own:
+                with open(own["path"], "rb") as f:
+                    reference = normalize_image(f.read(), 1024)
+            else:
+                async with SaleorAPI(installation.saleor_api_url, installation.auth_token) as api:
+                    reference = normalize_image(await api.download(ref_url), 1024)
+        result = await qc_check(provider, st.get("llm", {}).get("model") or DEFAULT_MODELS[provider], reference, generated, provider_key(installation.domain, provider))
+        db.set_asset_meta(installation.domain, asset_id, {"qc": result})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("qc for %s failed: %s", asset_id, exc)
 
 
 async def _after_job(installation: Installation, job: dict):

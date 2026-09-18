@@ -1,0 +1,169 @@
+"""Task-oriented studio: prompt building, provider auto-pick, variants, packs, publish, model lock, versions, bulk."""
+import asyncio
+import json
+import socket
+import threading
+import time
+from io import BytesIO
+
+import pytest
+import uvicorn
+from fastapi import FastAPI, Request, Response
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from media_suite import settings as settings_module
+from media_suite.db import db
+from media_suite.main import app
+from media_suite.prompting import ALL_LOCKS, build_prompt
+from media_suite.providers import PROVIDERS, Output
+
+
+def png(color=(1, 2, 3), size=(300, 400)):
+    b = BytesIO(); Image.new("RGB", size, color).save(b, "PNG"); return b.getvalue()
+
+
+class FakeSaleor:
+    def __init__(self):
+        self.app = FastAPI(); self.media = []; self.assigned = []; self.reordered = None
+
+        @self.app.api_route("/media/{name}", methods=["GET", "HEAD"])
+        async def media(name: str):
+            return Response(png(), media_type="image/png")
+
+        @self.app.post("/graphql/")
+        async def graphql(request: Request):
+            if request.headers.get("content-type", "").startswith("multipart/form-data"):
+                form = await request.form(); mid = f"MEDIA{len(self.media) + 1}"; self.media.append({"id": mid})
+                return {"data": {"productMediaCreate": {"errors": [], "media": {"id": mid, "url": self.base + "/media/new.png"}}}}
+            body = await request.json(); q, v = body["query"], body.get("variables") or {}
+            if "tokenVerify" in q:
+                return {"data": {"tokenVerify": {"isValid": v["token"] == "staff-jwt", "user": {"id": "U"}}}}
+            if "query StudioProductSummary" in q:
+                return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt", "category": {"name": "Shirts"}, "productType": {"name": "Shirt"},
+                    "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}, {"attribute": {"name": "Material", "slug": "material"}, "values": [{"name": "Cotton"}]}],
+                    "media": [{"id": "M1", "alt": "", "type": "IMAGE", "url": self.base + "/media/front.png", "thumb": self.base + "/media/front.png"}]}}}
+            if "query StudioVariants" in q:
+                return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt", "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}],
+                    "variants": [{"id": "V1", "sku": "R-BUR-S", "name": "S", "attributes": [{"attribute": {"name": "Size", "slug": "size"}, "values": [{"name": "S"}]}, {"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}], "media": []},
+                                 {"id": "V2", "sku": "R-NAV-S", "name": "S", "attributes": [{"attribute": {"name": "Size", "slug": "size"}, "values": [{"name": "S"}]}, {"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Navy"}]}], "media": []},
+                                 {"id": "V3", "sku": "R-GRN-S", "name": "S", "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Green"}]}], "media": []}],
+                    "media": []}}}
+            if "query ProductMedia" in q:
+                return {"data": {"product": {"id": "P1", "name": "Rugby Shirt", "media": [{"id": "M1", "alt": "", "type": "IMAGE", "url": self.base + "/media/front.png"}] + [{"id": m["id"], "alt": "", "type": "IMAGE", "url": self.base + "/media/x.png"} for m in self.media]}}}
+            if "variantMediaAssign" in q:
+                self.assigned.append(v); return {"data": {"variantMediaAssign": {"errors": []}}}
+            if "productMediaReorder" in q:
+                self.reordered = v; return {"data": {"productMediaReorder": {"errors": []}}}
+            return {"errors": [{"message": "unhandled " + q[:40]}]}
+
+    def start(self):
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); self.port = s.getsockname()[1]; s.close()
+        self.base = f"http://127.0.0.1:{self.port}"
+        server = uvicorn.Server(uvicorn.Config(self.app, host="127.0.0.1", port=self.port, log_level="warning"))
+        threading.Thread(target=server.run, daemon=True).start()
+        while not server.started: time.sleep(0.05)
+        return self
+
+
+class Recorder:
+    def __init__(self, real): self.spec = real.spec; self.calls = []
+    async def generate(self, model, req, api_key):
+        self.calls.append({"model": model, "mode": req.mode, "prompt": req.prompt, "n_images": len(req.product_images), "has_model": req.model_image is not None, "options": req.options})
+        await asyncio.sleep(0.02); return [Output(png((7, 7, 7)), "image/png")]
+
+
+@pytest.fixture(scope="module")
+def saleor():
+    settings_module.settings.use_insecure_saleor_http = True; app.use_insecure_saleor_http = True
+    fake = FakeSaleor().start()
+    db.save_installation(f"127.0.0.1:{fake.port}", "app-token", fake.base + "/graphql/", None)
+    yield fake
+
+
+def H(s): return {"x-saleor-domain": f"127.0.0.1:{s.port}", "x-saleor-token": "staff-jwt"}
+
+
+def wait_done(c, s, product_id="P1"):
+    for _ in range(100):
+        res = c.get(f"/api/studio/results?product_id={product_id}", headers=H(s)).json()
+        if res and all(r["status"] in ("done", "error") for r in res): return res
+        time.sleep(0.1)
+    raise AssertionError(res)
+
+
+def test_prompt_builder_locks_and_presets():
+    p = {"name": "Rugby Shirt", "category": "Shirts", "attributes": {"color": "Burgundy", "material": "Cotton"}}
+    t = build_prompt("model", p, {"pose": "pockets", "background": "grey", "logo": "remove", "locks": ALL_LOCKS, "extra": "smiling"}, {"product": 1, "model": 1})
+    assert "hands in trouser pockets" in t and "light grey" in t and "Remove any logo" in t and "the buttons" in t and t.endswith("smiling")
+    t = build_prompt("variants", p, {"color": "Navy", "locks": [l for l in ALL_LOCKS if l != "color"]}, {"product": 1})
+    assert "change only the garment colour to Navy" in t and "the exact colour" not in t
+    t = build_prompt("edit", p, {"action": "fix_collar", "locks": []}, {"product": 1})
+    assert "Fix the collar" in t and "Change nothing else" in t
+
+
+def test_run_model_task_auto_provider_and_publish(saleor, monkeypatch):
+    rec = Recorder(PROVIDERS["openai"]); monkeypatch.setitem(PROVIDERS, "openai", rec)
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=H(saleor), json={"provider": "openai", "api_key": "k"})
+        t = c.get("/api/studio/tasks", headers=H(saleor)).json()
+        assert [x["id"] for x in t["tasks"]][:3] == ["product", "model", "variants"] and t["providers_ready"]["tryon"] == ["openai", "gpt-image-2.5-sunburst"]
+        # model photo needed for the model task
+        m = c.post("/api/studio/assets/models", headers=H(saleor), files={"file": ("m.png", png((9, 9, 9)), "image/png")}, data={"label": "Anna"}).json()
+        r = c.post("/api/studio/run", headers=H(saleor), json={"task": "model", "product_id": "P1", "refs": {"product_urls": [saleor.base + "/media/front.png"], "model_asset_id": m["id"]},
+                                                              "options": {"pose": "walking", "background": "beige", "logo": "preserve"}})
+        assert r.status_code == 200, r.text
+        assert r.json()["provider"] == "openai"
+        res = wait_done(c, saleor)
+        assert res[0]["status"] == "done" and res[0]["task"] == "model"
+        call = rec.calls[-1]
+        assert call["mode"] == "tryon" and call["has_model"] and call["options"]["raw_prompt"] is True and "walking" in call["prompt"] and "beige" in call["prompt"]
+        asset = res[0]["assets"][0]
+        assert asset["meta"]["version"] == 1 and asset["meta"]["task"] == "model"
+        # publish: thumbnail
+        p = c.post("/api/studio/publish", headers=H(saleor), json={"asset_id": asset["id"], "action": "thumbnail"}).json()
+        assert p["status"] == "published" and saleor.reordered["mediaIds"][0] == p["media"]["id"]
+        # keep this model
+        lk = c.post("/api/studio/model-lock", headers=H(saleor), json={"asset_id": asset["id"], "label": "House model"}).json()
+        assert lk["asset"]["kind"] == "model" and c.get("/api/studio/tasks", headers=H(saleor)).json()["locked_model"] == lk["locked_model"]
+        # next model task without an explicit model uses the locked one
+        r = c.post("/api/studio/run", headers=H(saleor), json={"task": "model", "product_id": "P1", "refs": {"product_urls": [saleor.base + "/media/front.png"]}})
+        assert r.status_code == 200 and r.json()["input"]["model_asset_id"] == lk["locked_model"]
+        wait_done(c, saleor)
+
+
+def test_variants_generator_and_versions_and_add_variant(saleor, monkeypatch):
+    rec = Recorder(PROVIDERS["openai"]); monkeypatch.setitem(PROVIDERS, "openai", rec)
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=H(saleor), json={"provider": "openai", "api_key": "k"})
+        vi = c.get("/api/studio/variants/P1", headers=H(saleor)).json()
+        assert vi["product_color"] == "Burgundy" and vi["colors"] == ["Burgundy", "Green", "Navy"]
+        source = [a for r in c.get("/api/studio/results?product_id=P1", headers=H(saleor)).json() for a in r["assets"]][0]
+        r = c.post("/api/studio/variants/generate", headers=H(saleor), json={"product_id": "P1", "source_asset_id": source["id"]})
+        assert r.status_code == 200, r.text
+        jobs = r.json()["jobs"]
+        assert sorted(j["input"]["options"] and j["input"]["variant_id"] for j in jobs) == ["V2", "V3"]     # Navy, Green; Burgundy skipped
+        res = wait_done(c, saleor)
+        navy = next(r for r in res if r["variant_id"] == "V2")
+        assert navy["status"] == "done" and "Navy" in rec.calls[-1]["prompt"] or "Navy" in rec.calls[-2]["prompt"]
+        a = navy["assets"][0]
+        assert a["meta"]["parent_id"] == source["id"] and a["meta"]["version"] == 2 and a["meta"]["variant_id"] == "V2"
+        chain = c.get(f"/api/studio/versions/{a['id']}", headers=H(saleor)).json()
+        assert chain[0]["id"] == source["id"] and any(x["current"] for x in chain) and len(chain) >= 3
+        # add to variant (uses the remembered variant id)
+        p = c.post("/api/studio/publish", headers=H(saleor), json={"asset_id": a["id"], "action": "add_variant"}).json()
+        assert p["status"] == "published" and saleor.assigned[-1]["variantId"] == "V2"
+
+
+def test_pack_and_bulk_with_look(saleor, monkeypatch):
+    rec = Recorder(PROVIDERS["openai"]); monkeypatch.setitem(PROVIDERS, "openai", rec)
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=H(saleor), json={"provider": "openai", "api_key": "k"})
+        look = c.put("/api/studio/looks", headers=H(saleor), json={"name": "Winter Polo", "background": "grey", "pose": "side"}).json()
+        r = c.post("/api/studio/pack", headers=H(saleor), json={"product_id": "P1", "pack": "product", "look_id": look["id"]})
+        assert r.status_code == 200 and len(r.json()["jobs"]) == 4
+        r = c.post("/api/studio/bulk", headers=H(saleor), json={"product_ids": ["P1", "P2"], "task": "product", "look_id": look["id"]}).json()
+        assert r["started"] == 2 and all("jobs" in x for x in r["results"])
+        wait_done(c, saleor); wait_done(c, saleor, "P2")
+        assert any("light grey" in call["prompt"] for call in rec.calls)
+        assert c.delete(f"/api/studio/looks/{look['id']}", headers=H(saleor)).json()["deleted"] == look["id"]

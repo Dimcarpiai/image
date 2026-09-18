@@ -22,6 +22,7 @@ class StabilityProvider(Provider):
         models=[
             ModelSpec("relight", "Replace background & relight (product stays identical)", ["scene"],
                       options={"light_source_direction": ["none", "above", "below", "left", "right"], "preserve_original_subject": ["0.6", "0.8", "1.0"]}),
+            ModelSpec("edit", "Search & replace edit (targeted change)", ["edit"], options={"search": ["shirt", "logo", "collar", "sleeve", "trousers", "background"]}),
             ModelSpec("ultra", "Stable Image Ultra (image-to-image)", ["scene"],
                       options={"strength": ["0.35", "0.5", "0.65", "0.8"]}),
             ModelSpec("sd3.5-large", "Stable Diffusion 3.5 Large (image-to-image)", ["scene"],
@@ -43,6 +44,15 @@ class StabilityProvider(Provider):
             form.add_field("aspect_ratio", o.get("aspect_ratio", "3:4"))
             form.add_field("output_format", "png")
             return "/stable-image/generate/core", form
+        if model == "edit":
+            if not req.product_images:
+                raise ProviderError("select a source image")
+            src = req.product_images[0]
+            form.add_field("image", src.data, filename="src.png", content_type=src.mime)
+            form.add_field("search_prompt", o.get("search", "shirt"))
+            form.add_field("prompt", req.prompt)
+            form.add_field("output_format", "png")
+            return "/stable-image/edit/search-and-replace", form
         if model == "search-replace":
             if not req.model_image:
                 raise ProviderError("a model photo is required for try-on")
@@ -57,7 +67,7 @@ class StabilityProvider(Provider):
         src = req.product_images[0]
         if model == "relight":
             form.add_field("subject_image", src.data, filename="subject.png", content_type=src.mime)
-            form.add_field("background_prompt", req.prompt or "clean studio background, soft light")
+            form.add_field("background_prompt", o.get("background_prompt") or req.prompt or "clean studio background, soft light")
             form.add_field("preserve_original_subject", str(o.get("preserve_original_subject", "0.6")))
             if o.get("light_source_direction", "none") != "none":
                 form.add_field("light_source_direction", o["light_source_direction"])

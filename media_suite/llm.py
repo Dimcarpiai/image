@@ -118,3 +118,26 @@ async def alt_text(provider: str, model: Optional[str], image: ImageInput, produ
         return ""
     text = await BACKENDS[provider](model or DEFAULT_MODELS[provider], ALT_SYSTEM, f"Product: {product_name}", [image], api_key, False)
     return text.strip().strip('"')[:120]
+
+
+QC_SYSTEM = (
+    "You are a strict quality checker for fashion catalog images. The first image is the ORIGINAL product photo, the second is an AI-generated image "
+    "that must show the SAME product. Compare them and list concrete problems only: changed stripes or pattern, wrong number or placement of buttons, "
+    "changed collar, logo missing/changed/invented, wrong colour, changed garment shape or length, deformed hands or body, extra limbs, unreadable or "
+    "garbled text, artefacts. Return ONLY JSON: {\"status\": \"ready\"|\"needs_review\", \"issues\": [short strings]} — \"ready\" only when there are no product-accuracy problems."
+)
+
+
+async def qc_check(provider: str, model: Optional[str], reference: Optional[ImageInput], generated: ImageInput, api_key: str) -> dict:
+    if provider not in BACKENDS:
+        return {"status": "unchecked", "issues": []}
+    images = [reference, generated] if reference else [generated]
+    text = await BACKENDS[provider](model or DEFAULT_MODELS[provider], QC_SYSTEM,
+                                    "Compare and report." if reference else "No original available; check the generated image for AI mistakes only.",
+                                    images, api_key, True)
+    try:
+        out = _json_from_text(text)
+        status = "ready" if str(out.get("status", "")).lower().startswith("ready") and not out.get("issues") else "needs_review"
+        return {"status": status, "issues": [str(i)[:120] for i in (out.get("issues") or [])][:6]}
+    except Exception:  # noqa: BLE001
+        return {"status": "unchecked", "issues": [text[:120]]}

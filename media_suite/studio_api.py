@@ -349,7 +349,7 @@ async def _run_pack(shop: Installation, product: dict, image_urls: List[str], mo
     return {"product_id": product["id"], "started": started, "skipped": skipped, "estimated_cost_eur": round(cost, 2)}
 
 
-@router.post("/pack")
+@router.post("/pack-presets")
 async def pack(body: PackBody, shop: Installation = Depends(current_shop)):
     async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
         prod = await api.execute(PRODUCT_SUMMARY, {"id": body.product_id})
@@ -368,7 +368,7 @@ class BulkPackBody(BaseModel):
     skip_if_done: bool = True
 
 
-@router.post("/pack-bulk")
+@router.post("/pack-presets-bulk")
 async def pack_bulk(body: BulkPackBody, shop: Installation = Depends(current_shop)):
     batch = uuid.uuid4().hex
     results = []

@@ -9,11 +9,11 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 
 def test_catalog_lists_all_modes_and_models():
     c = catalog({"openai": True})
-    assert [m["id"] for m in c["modes"]] == ["scene", "tryon", "video", "model"]
+    assert [m["id"] for m in c["modes"]] == ["scene", "tryon", "video", "model", "edit"]
     ids = {p["id"]: p for p in c["providers"]}
     assert ids["openai"]["configured"] and not ids["fal"]["configured"]
     assert any("video" in m["modes"] for m in ids["fal"]["models"])
-    assert find_model("gemini", "gemini-3.1-flash-image").modes == ["scene", "tryon", "model"]
+    assert find_model("gemini", "gemini-3.1-flash-image").modes == ["scene", "tryon", "model", "edit"]
 
 
 def test_fal_inputs_per_model():

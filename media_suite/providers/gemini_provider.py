@@ -17,24 +17,27 @@ class GeminiProvider(Provider):
         key_label="Gemini API key",
         key_help="aistudio.google.com → Get API key.",
         models=[
-            ModelSpec("gemini-3.1-flash-image", "Gemini 3.1 Flash Image", ["scene", "tryon", "model"], options={"aspect_ratio": ASPECTS}),
-            ModelSpec("gemini-3-pro-image", "Gemini 3 Pro Image (highest quality)", ["scene", "tryon", "model"], options={"aspect_ratio": ASPECTS}),
-            ModelSpec("gemini-2.5-flash-image", "Gemini 2.5 Flash Image", ["scene", "tryon", "model"], options={"aspect_ratio": ASPECTS}),
+            ModelSpec("gemini-3.1-flash-image", "Gemini 3.1 Flash Image", ["scene", "tryon", "model", "edit"], options={"aspect_ratio": ASPECTS}),
+            ModelSpec("gemini-3-pro-image", "Gemini 3 Pro Image (highest quality)", ["scene", "tryon", "model", "edit"], options={"aspect_ratio": ASPECTS}),
+            ModelSpec("gemini-2.5-flash-image", "Gemini 2.5 Flash Image", ["scene", "tryon", "model", "edit"], options={"aspect_ratio": ASPECTS}),
         ],
     )
 
     async def generate(self, model: str, req: GenerateRequest, api_key: str) -> List[Output]:
+        raw = bool(req.options.get("raw_prompt"))
         if req.mode == "model":
             images, prompt = [], model_photo_prompt(req.prompt)
             req.options = {**req.options, "aspect_ratio": req.options.get("aspect_ratio") if req.options.get("aspect_ratio") not in (None, "auto") else "3:4"}
         elif req.mode == "tryon":
             if not req.model_image:
                 raise ProviderError("a model photo is required for try-on")
-            images = [req.model_image, *req.product_images]
-            prompt = tryon_prompt(req.prompt)
+            images = [*req.product_images, req.model_image] if raw else [req.model_image, *req.product_images]
+            prompt = req.prompt if raw else tryon_prompt(req.prompt)
+        elif req.mode == "edit":
+            images, prompt = list(req.product_images), req.prompt
         else:
             images = list(req.product_images)
-            prompt = scene_prompt(req.prompt)
+            prompt = req.prompt if raw else scene_prompt(req.prompt)
         parts = [{"text": prompt}] + [
             {"inline_data": {"mime_type": img.mime, "data": base64.b64encode(img.data).decode()}} for img in images[:10]
         ]

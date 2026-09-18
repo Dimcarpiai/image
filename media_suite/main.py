@@ -16,6 +16,7 @@ from saleor_app.schemas.utils import LazyPath, LazyUrl
 from .builder_api import router as builder_router
 from .optimizer_api import router as optimizer_router
 from .studio_api import media_router, router as studio_router
+from .studio_v1_api import router as studio_v1_router
 from .db import db
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .service import optimize_product
@@ -305,6 +306,7 @@ async def mark_interrupted_jobs():
 
 app.include_saleor_app_routes()  # /configuration/manifest + /configuration/install
 app.include_router(optimizer_router)
+app.include_router(studio_v1_router)   # task-oriented API (v1) - registered first so /pack, /bulk win
 app.include_router(studio_router)
 app.include_router(builder_router)
 app.include_router(media_router)
