@@ -287,3 +287,14 @@ kbd { border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px
 .action-select { width: 100%; font-size: 12px; padding: 5px 6px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); }
 .tile .cap .badge { font-size: 11px; padding: 1px 6px; }
 @media (max-width: 900px) { .opt-row { grid-template-columns: 1fr; } }
+
+/* ---- 1.1.3 simplification ---- */
+.task-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; padding: 12px 20px 16px; }
+.task { padding: 10px 12px; }
+.task span { display: none; }
+.task.active span { display: block; }
+.refs { padding: 14px 20px 4px; }
+#refs-more { padding: 10px 0 0; }
+#options-more { padding: 8px 0 0; }
+.gen-form#options { padding: 10px 20px 4px; gap: 10px; }
+.advanced { margin-top: 6px; }

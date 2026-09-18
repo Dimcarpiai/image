@@ -106,10 +106,11 @@
   function renderTasks() {
     const g = $("#task-grid"); g.replaceChildren();
     for (const t of S.tasks.tasks) g.append(el("button", { class: `task${S.task === t.id ? " active" : ""}`, onclick: () => { S.task = t.id; renderTasks(); renderRefs(); renderOptions(); } }, el("strong", {}, t.label), el("span", {}, t.help)));
-    $("#task-help").textContent = S.tasks.tasks.find((t) => t.id === S.task)?.help || "";
+
   }
 
   // ---- 3 · references ---------------------------------------------------------------
+  const PRIMARY = { product: ["product"], model: ["product", "model"], variants: ["source"], pack: ["product", "model"], edit: ["source"], video: ["source"] };
   const REF_SLOTS = {
     product: [{ key: "product", label: "Product", help: "controls the garment", multi: true }, { key: "fabric", label: "Fabric", help: "optional: true texture", multi: true }, { key: "style", label: "Style", help: "optional: camera, background, crop" }],
     model: [{ key: "product", label: "Product", help: "controls the garment", multi: true }, { key: "model", label: "Model", help: "controls the person" }, { key: "fabric", label: "Fabric", help: "optional" }, { key: "style", label: "Style", help: "optional: copy look from another product" }, { key: "logo", label: "Logo", help: "only if 'Add uploaded logo'" }],
@@ -119,15 +120,24 @@
     video: [{ key: "source", label: "Start image", help: "a product image or a result" }],
   };
   function renderRefs() {
-    const box = $("#refs"); box.replaceChildren();
+    const main = $("#refs"), more = $("#refs-more"); main.replaceChildren(); more.replaceChildren();
     for (const slot of REF_SLOTS[S.task] || []) {
       const items = slotItems(slot.key);
       const tiles = el("div", { class: "ref-tiles" });
       for (const it of items) tiles.append(el("div", { class: "ref-tile" }, el("img", { src: it.thumb, alt: "" }), el("button", { class: "btn btn-sm del", onclick: () => removeRef(slot.key, it.id) }, "✕")));
-      tiles.append(el("button", { class: "ref-add", onclick: () => pickFor(slot.key) }, "+"));
+      if (slot.key === "product" && !items.length && !S.product.media.length) {
+        tiles.append(el("label", { class: "btn btn-sm btn-primary" }, "Upload a product photo", el("input", { type: "file", accept: "image/*", hidden: true, onchange: async (e) => { const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append("file", f); try { const a = await api("/api/builder/upload", { method: "POST", body: fd }); setRef("product", { id: a.id, url: location.origin + a.url, thumb: a.url }); } catch (err) { notify("error", err.message); } } })));
+        tiles.append(el("span", { class: "muted", style: "font-size:12px" }, "this product has no images in Saleor yet"));
+      } else tiles.append(el("button", { class: "ref-add", title: "Choose or upload", onclick: () => pickFor(slot.key) }, "+"));
       if (slot.key === "model" && S.lockedModel) tiles.append(el("span", { class: "badge badge-ok", title: "Model lock is on" }, "locked model"));
-      box.append(el("div", { class: "ref-slot" }, el("div", { class: "ref-head" }, el("strong", {}, slot.label), el("span", { class: "muted" }, slot.help)), tiles));
+      (PRIMARY[S.task].includes(slot.key) ? main : more).append(el("div", { class: "ref-slot" }, el("div", { class: "ref-head" }, el("strong", {}, slot.label), el("span", { class: "muted" }, slot.help)), tiles));
     }
+    $("#generate").disabled = !canGenerate();
+  }
+  function canGenerate() {
+    const R = S.refs;
+    if (["variants", "edit", "video"].includes(S.task)) return !!R.source_asset_id || (S.task === "video" && R.product_urls.length > 0);
+    return R.product_urls.length > 0;
   }
   function slotItems(key) {
     const R = S.refs, T = S.refThumbs;
@@ -188,17 +198,20 @@
   // ---- options per task ---------------------------------------------------------------
   const chip = (label, on, onclick) => el("button", { class: `val${on ? " on" : ""}`, onclick }, label);
   function renderOptions() {
-    const box = $("#options"); box.replaceChildren(); const o = S.opts, T = S.tasks;
-    const chips = (title, items, get, set) => box.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, title), el("div", { class: "values" }, ...items.map((i) => chip(i.label, get() === i.id, () => { set(i.id); renderOptions(); })))));
+    const box = $("#options"), moreBox = $("#options-more"); box.replaceChildren(); moreBox.replaceChildren(); const o = S.opts, T = S.tasks;
+    const chipsIn = (target) => (title, items, get, set) => target.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, title), el("div", { class: "values" }, ...items.map((i) => chip(i.label, get() === i.id, () => { set(i.id); renderOptions(); })))));
+    const chips = chipsIn(box), chipsMore = chipsIn(moreBox);
     if (S.task === "model" || S.task === "pack") chips("Pose", T.poses, () => o.pose, (v) => (o.pose = v));
     if (["product", "model", "pack"].includes(S.task)) chips("Background", T.backgrounds, () => o.background, (v) => { o.background = v; if (v === "custom" && !S.refs.style_url) pickFor("style"); });
-    if (S.task === "product") chips("Angle", [{ id: "front view", label: "Front" }, { id: "back view", label: "Back" }, { id: "side view", label: "Side" }, { id: "fabric detail, macro of the texture and stitching", label: "Fabric detail" }], () => o.angle, (v) => (o.angle = v));
-    if (S.task !== "video") chips("Logo", T.logo, () => o.logo, (v) => { o.logo = v; if (v === "add" && !S.refs.logo_asset_id) pickFor("logo"); });
+    if (S.task === "product") chipsMore("Angle", [{ id: "front view", label: "Front" }, { id: "back view", label: "Back" }, { id: "side view", label: "Side" }, { id: "fabric detail, macro of the texture and stitching", label: "Fabric detail" }], () => o.angle, (v) => (o.angle = v));
+    if (S.task !== "video") chipsMore("Logo", T.logo, () => o.logo, (v) => { o.logo = v; if (v === "add" && !S.refs.logo_asset_id) pickFor("logo"); });
     if (S.task === "edit") { chips("Change", T.edit_actions, () => o.action, (v) => (o.action = v)); const act = T.edit_actions.find((a) => a.id === o.action); if (act?.needs_value) box.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, "To"), el("input", { value: o.value, placeholder: o.action === "change_color" ? "e.g. Navy" : "describe", oninput: (e) => (o.value = e.target.value) }))); }
     if (S.task === "variants") box.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, "Colours"), el("div", { id: "variant-colors", class: "values" }, el("span", { class: "muted" }, "loading…"))));
     if (S.task === "pack") chips("Pack", T.packs, () => o.pack || "product", (v) => (o.pack = v));
-    if (S.task !== "video") { box.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, "Product lock"), el("div", { class: "values" }, ...T.locks.map((l) => chip(l.label, o.locks.includes(l.id), () => { o.locks = o.locks.includes(l.id) ? o.locks.filter((x) => x !== l.id) : [...o.locks, l.id]; renderOptions(); })), el("span", { class: "muted", style: "font-size:12px;align-self:center" }, "locked parts must not change")))); }
+    if (S.task !== "video") { moreBox.append(el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, "Product lock"), el("div", { class: "values" }, ...T.locks.map((l) => chip(l.label, o.locks.includes(l.id), () => { o.locks = o.locks.includes(l.id) ? o.locks.filter((x) => x !== l.id) : [...o.locks, l.id]; renderOptions(); })), el("span", { class: "muted", style: "font-size:12px;align-self:center" }, "locked parts must not change")))); }
     if (S.task === "variants") loadVariantColors();
+    if (!box.children.length) box.append(el("p", { class: "muted", style: "margin:0" }, "Nothing else to choose — press Generate."));
+    $("#generate").disabled = !canGenerate();
     updateEstimate();
   }
   async function loadVariantColors() {
