@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.4.3">
+  <link rel="stylesheet" href="/static/app.css?v=0.4.4">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -105,11 +105,19 @@
     </div>
   </dialog>
 
+  <dialog id="product-chooser" class="lightbox picker">
+    <form method="dialog" class="preview-head"><h2>Add image to which product?</h2><button class="btn btn-quiet">Cancel</button></form>
+    <div class="picker-body">
+      <div class="side-search"><input type="search" id="chooser-search" placeholder="Search products"></div>
+      <ul class="product-list" id="chooser-list"></ul>
+    </div>
+  </dialog>
+
   <dialog id="lightbox" class="lightbox">
     <form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form>
     <div id="lightbox-body"></div>
   </dialog>
 
-  <script src="/static/studio/app.js?v=0.4.3"></script>
+  <script src="/static/studio/app.js?v=0.4.4"></script>
 </body>
 </html>

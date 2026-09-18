@@ -258,6 +258,7 @@
           el("div", { class: "actions" },
             j.mode === "model" ? el("button", { class: "btn btn-sm btn-primary", onclick: () => { state.modelPhotoId = a.id; state.mode = "tryon"; renderModeTabs(); renderModelPhotos(); } }, "Use for try-on")
               : isVideo ? null : el("button", { class: "btn btn-sm btn-primary", onclick: () => attach(a, j) }, "Add to product"),
+            (j.mode === "model" || isVideo) ? null : el("button", { class: "btn btn-sm", onclick: () => chooseProduct((target) => attachTo(a, j, target)) }, "Add to another product…"),
             el("a", { class: "btn btn-sm", href: a.url, download: `ai-studio-${a.id.slice(0, 8)}.${a.mime.split("/")[1]}` }, "Download"),
             el("button", { class: "btn btn-sm", onclick: async () => { await api(`/api/studio/assets/${a.id}`, { method: "DELETE" }); loadJobs(); } }, "Delete"))));
       }
@@ -318,6 +319,33 @@
   const _renderModeTabs = renderModeTabs;
   renderModeTabs = function () { _renderModeTabs(); renderPresets(); };
 
+  async function attachTo(a, j, target) {
+    try {
+      await api("/api/studio/attach", { method: "POST", body: JSON.stringify({ asset_id: a.id, product_id: target.id, alt: (j?.input?.prompt || a.label || "").slice(0, 120) }) });
+      notify("success", "AI Studio", `Image added to "${target.name}".`);
+      if (state.product && target.id === state.product.id) await refreshProductMedia();
+    } catch (e) { notify("error", "AI Studio", e.message); }
+  }
+  async function refreshProductMedia() {
+    const page = await api(`/api/studio/products?${new URLSearchParams({ search: state.product.name, first: "50" })}`);
+    const fresh = page.items.find((x) => x.id === state.product.id); if (fresh) { Object.assign(state.product, fresh); renderProductMedia(); }
+  }
+  function chooseProduct(onPick) {
+    const dlg = $("#product-chooser"); dlg.showModal(); $("#chooser-search").value = "";
+    const list = $("#chooser-list");
+    const load = async (search) => {
+      list.replaceChildren(el("li", { class: "muted" }, "Loading…"));
+      const page = await api(`/api/studio/products?${new URLSearchParams({ search, first: "30" })}`);
+      list.replaceChildren();
+      for (const p of page.items) list.append(el("li", { onclick: () => { dlg.close(); onPick(p); } },
+        p.thumbnail ? el("img", { src: p.thumbnail, alt: "" }) : el("div", { class: "thumb-empty" }),
+        el("div", {}, el("div", { class: "name" }, p.name), el("div", { class: "sub" }, `${p.media.length} image${p.media.length === 1 ? "" : "s"}`))));
+      if (!page.items.length) list.append(el("li", { class: "muted" }, "No products found."));
+    };
+    let t; $("#chooser-search").oninput = (e) => { clearTimeout(t); t = setTimeout(() => load(e.target.value.trim()), 300); };
+    load("");
+  }
+
   // ---- review queue --------------------------------------------------------
   async function loadReview() {
     const items = await api("/api/studio/review");
@@ -329,6 +357,7 @@
         el("div", { class: "cap", title: a.label || "" }, (a.product_name || "?") + " · " + (a.meta?.preset || a.meta?.mode || "")),
         el("div", { class: "actions" },
           el("button", { class: "btn btn-sm btn-primary", onclick: async () => { try { await api("/api/studio/review", { method: "POST", body: JSON.stringify({ asset_id: a.id, decision: "approve" }) }); notify("success", "AI Studio", "Approved and attached"); loadReview(); if (state.product) loadJobs(); } catch (e) { notify("error", "AI Studio", e.message); } } }, "Approve"),
+          el("button", { class: "btn btn-sm", onclick: () => chooseProduct(async (target) => { await attachTo(a, null, target); loadReview(); }) }, "Other product…"),
           el("button", { class: "btn btn-sm", onclick: async () => { await api("/api/studio/review", { method: "POST", body: JSON.stringify({ asset_id: a.id, decision: "reject" }) }); loadReview(); if (state.product) loadJobs(); } }, "Reject"))));
     }
     if (!items.length) grid.append(el("p", { class: "muted" }, "Nothing waiting for review."));
