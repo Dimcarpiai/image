@@ -98,8 +98,6 @@ manifest = Manifest(
                   permissions=["MANAGE_PRODUCTS"], url=LazyPath("optimizer-page")),
         Extension(label="AI Studio", mount=MountType.NAVIGATION_CATALOG, target=TargetType.APP_PAGE,
                   permissions=["MANAGE_PRODUCTS"], url=LazyPath("studio-page")),
-        Extension(label="Product Builder", mount=MountType.NAVIGATION_CATALOG, target=TargetType.APP_PAGE,
-                  permissions=["MANAGE_PRODUCTS"], url=LazyPath("builder-page")),
     ],
 )
 
@@ -143,10 +141,6 @@ async def optimizer_page():
 async def studio_page():
     return HTMLResponse((STATIC_DIR / "studio" / "index.html").read_text(encoding="utf-8"), headers=NO_STORE)
 
-
-@app.get("/builder", name="builder-page", response_class=HTMLResponse, include_in_schema=False)
-async def builder_page():
-    return HTMLResponse((STATIC_DIR / "builder" / "index.html").read_text(encoding="utf-8"), headers=NO_STORE)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

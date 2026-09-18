@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.7.1">
+  <link rel="stylesheet" href="/static/app.css?v=0.8.1">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -19,6 +19,14 @@
     <section class="panel" id="settings" hidden>
       <div class="panel-head"><h2>Provider API keys</h2><button class="btn btn-quiet" id="close-settings">Close</button></div>
       <div class="keys" id="keys"></div>
+      <div class="gen-form" style="border-top:1px solid var(--border)">
+        <h3>Storefront</h3>
+        <div class="row2">
+          <label>Revalidate URL <span class="hint">called after images/products change</span><input id="sf-url" placeholder="https://rostau.de/api/revalidate"></label>
+          <label>Secret <span class="hint">sent as Bearer token</span><input id="sf-secret" type="password" placeholder="leave empty to keep"></label>
+        </div>
+        <div class="between"><span class="muted" id="sf-msg"></span><button class="btn btn-sm" id="sf-save">Save storefront settings</button></div>
+      </div>
     </section>
 
     <div class="layout">
@@ -160,11 +168,21 @@
     </div>
   </dialog>
 
+  <dialog id="ask" class="lightbox">
+    <div class="gen-form" style="width:min(460px,88vw)">
+      <h3 id="ask-title"></h3>
+      <p class="muted" id="ask-text"></p>
+      <label id="ask-input-wrap" hidden>Value <input id="ask-input"></label>
+      <label class="check" id="ask-check-wrap" hidden><input type="checkbox" id="ask-check"> <span id="ask-check-label"></span></label>
+      <div class="between"><span></span><div><button class="btn" id="ask-no">Cancel</button> <button class="btn btn-primary" id="ask-yes">OK</button></div></div>
+    </div>
+  </dialog>
+
   <dialog id="lightbox" class="lightbox">
     <form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form>
     <div id="lightbox-body"></div>
   </dialog>
 
-  <script src="/static/studio/app.js?v=0.7.1"></script>
+  <script src="/static/studio/app.js?v=0.8.1"></script>
 </body>
 </html>

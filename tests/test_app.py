@@ -14,8 +14,8 @@ def test_manifest():
     assert data["permissions"] == ["MANAGE_PRODUCTS"]
     assert data["appUrl"] == "http://testserver/"
     assert data["tokenTargetUrl"] == "http://testserver/configuration/install"
-    assert [e["label"] for e in data["extensions"]] == ["Image Optimizer", "AI Studio", "Product Builder"]
-    assert [e["url"] for e in data["extensions"]] == ["/optimizer", "/studio", "/builder"]
+    assert [e["label"] for e in data["extensions"]] == ["Image Optimizer", "AI Studio"]
+    assert [e["url"] for e in data["extensions"]] == ["/optimizer", "/studio"]
     assert all(e["mount"] == "NAVIGATION_CATALOG" and e["target"] == "APP_PAGE" for e in data["extensions"])
 
 

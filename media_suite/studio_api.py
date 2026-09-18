@@ -510,3 +510,26 @@ async def update_product_details(product_id: str, body: ProductEdit, shop: Insta
         raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors, "done": steps})
     await notify_storefront(shop.domain, product_id, product.get("slug", ""), "product-updated")
     return {"product": product, "steps": steps}
+
+
+# -- storefront revalidation settings (moved here from Product Builder) -----------
+class StorefrontSettings(BaseModel):
+    revalidate_url: str = ""
+    revalidate_secret: str = ""     # empty keeps the saved one; "-" clears it
+
+
+@router.get("/storefront")
+async def get_storefront(shop: Installation = Depends(current_shop)):
+    st = db.get_settings(shop.domain).get("storefront", {})
+    return {"revalidate_url": st.get("revalidate_url", ""), "has_secret": bool(st.get("revalidate_secret"))}
+
+
+@router.put("/storefront")
+async def put_storefront(body: StorefrontSettings, shop: Installation = Depends(current_shop)):
+    st = db.get_settings(shop.domain)
+    sf = st.setdefault("storefront", {})
+    sf["revalidate_url"] = body.revalidate_url.strip()
+    if body.revalidate_secret:
+        sf["revalidate_secret"] = "" if body.revalidate_secret == "-" else body.revalidate_secret
+    db.save_settings(shop.domain, st)
+    return {"revalidate_url": sf["revalidate_url"], "has_secret": bool(sf.get("revalidate_secret"))}

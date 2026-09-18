@@ -29,6 +29,19 @@
     n.append(...children.filter((c) => c !== null && c !== undefined));
     return n;
   };
+  /** In-page replacement for confirm()/prompt(): the dashboard's sandboxed iframe blocks native popups. */
+  function ask({ title, text = "", input = null, check = null, ok = "OK" }) {
+    return new Promise((resolve) => {
+      const dlg = $("#ask"); $("#ask-title").textContent = title; $("#ask-text").textContent = text; $("#ask-yes").textContent = ok;
+      $("#ask-input-wrap").hidden = input === null; $("#ask-input").value = input || ""; $("#ask-input").placeholder = "";
+      $("#ask-check-wrap").hidden = check === null; $("#ask-check").checked = false; $("#ask-check-label").textContent = check || "";
+      const done = (v) => { dlg.close(); resolve(v); };
+      $("#ask-yes").onclick = () => done({ ok: true, value: $("#ask-input").value.trim(), checked: $("#ask-check").checked });
+      $("#ask-no").onclick = () => done({ ok: false });
+      dlg.onclose = () => resolve({ ok: false });
+      dlg.showModal(); if (input !== null) $("#ask-input").focus();
+    });
+  }
   const notify = (status, title, text) => window.parent.postMessage({ type: "notification", payload: { actionId: crypto.randomUUID(), status, title, text } }, "*");
 
   window.addEventListener("message", (e) => {
@@ -76,7 +89,15 @@
         input, save, el("div", { class: "help" }, p.key_help + (p.configured ? " Leave empty and save to remove the key." : ""))));
     }
   }
-  $("#open-settings").addEventListener("click", () => { $("#settings").hidden = !$("#settings").hidden; });
+  $("#open-settings").addEventListener("click", async () => {
+    $("#settings").hidden = !$("#settings").hidden;
+    if (!$("#settings").hidden) { try { const sf = await api("/api/studio/storefront"); $("#sf-url").value = sf.revalidate_url; $("#sf-secret").placeholder = sf.has_secret ? "•••••• (saved)" : "optional"; } catch {} }
+  });
+  $("#sf-save").addEventListener("click", async () => {
+    try { const r = await api("/api/studio/storefront", { method: "PUT", body: JSON.stringify({ revalidate_url: $("#sf-url").value.trim(), revalidate_secret: $("#sf-secret").value }) });
+      $("#sf-secret").value = ""; $("#sf-secret").placeholder = r.has_secret ? "•••••• (saved)" : "optional"; $("#sf-msg").textContent = "Saved."; }
+    catch (e) { $("#sf-msg").textContent = e.message; }
+  });
   $("#close-settings").addEventListener("click", () => { $("#settings").hidden = true; });
 
   // ---- products -----------------------------------------------------------
@@ -118,7 +139,7 @@
         el("img", { src: m.thumb, alt: m.alt || "" }), sel ? el("span", { class: "check" }, "✓") : null,
         el("button", { class: "btn btn-sm del", title: "Remove this image from the product", onclick: async (e) => {
           e.stopPropagation();
-          if (!confirm(`Remove this image from "${state.product.name}"? This deletes it from Saleor.`)) return;
+          const a = await ask({ title: "Remove image?", text: `Remove this image from "${state.product.name}"? This deletes it from Saleor.`, ok: "Remove" }); if (!a.ok) return;
           try { await api("/api/studio/remove-media", { method: "POST", body: JSON.stringify({ product_id: state.product.id, media_id: m.id }) });
             state.product.media = state.product.media.filter((x) => x.id !== m.id); state.selectedMedia.delete(m.id); renderProductMedia(); notify("success", "AI Studio", "Image removed."); }
           catch (err) { notify("error", "AI Studio", err.message); }
@@ -359,8 +380,8 @@
     $("#prompt").value = p.prompt || "";
   });
   $("#save-preset").addEventListener("click", async () => {
-    const name = prompt("Preset name:"); if (!name) return;
-    const inPack = confirm("Include this preset in 'Generate pack'?");
+    const a = await ask({ title: "Save preset", text: "Saves the current mode, provider, model, options and prompt.", input: "", check: "Include in 'Generate pack'", ok: "Save" });
+    if (!a.ok || !a.value) return; const name = a.value, inPack = a.checked;
     const options = { n: Number($("#count").value) }; for (const s of $("#model-options").querySelectorAll("select")) options[s.dataset.opt] = s.value;
     const preset = { id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, mode: state.mode, provider: $("#provider").value, model: $("#model").value, prompt: $("#prompt").value.trim(), options, in_pack: inPack };
     state.presets = [...state.presets.filter((p) => p.id !== preset.id), preset];
