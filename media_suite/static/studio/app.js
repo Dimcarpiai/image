@@ -115,7 +115,15 @@
     for (const m of state.product.media) {
       const sel = state.selectedMedia.has(m.id);
       grid.append(el("div", { class: `tile${sel ? " selected" : ""}`, onclick: () => { sel ? state.selectedMedia.delete(m.id) : state.selectedMedia.add(m.id); renderProductMedia(); } },
-        el("img", { src: m.thumb, alt: m.alt || "" }), sel ? el("span", { class: "check" }, "✓") : null, el("div", { class: "cap" }, m.alt || "product image")));
+        el("img", { src: m.thumb, alt: m.alt || "" }), sel ? el("span", { class: "check" }, "✓") : null,
+        el("button", { class: "btn btn-sm del", title: "Remove this image from the product", onclick: async (e) => {
+          e.stopPropagation();
+          if (!confirm(`Remove this image from "${state.product.name}"? This deletes it from Saleor.`)) return;
+          try { await api("/api/studio/remove-media", { method: "POST", body: JSON.stringify({ product_id: state.product.id, media_id: m.id }) });
+            state.product.media = state.product.media.filter((x) => x.id !== m.id); state.selectedMedia.delete(m.id); renderProductMedia(); notify("success", "AI Studio", "Image removed."); }
+          catch (err) { notify("error", "AI Studio", err.message); }
+        } }, "✕"),
+        el("div", { class: "cap" }, m.alt || "product image")));
     }
     // generated images can be re-used as reference (e.g. video from a generated scene)
     for (const a of state.jobs.flatMap((j) => j.assets).filter((a) => a.mime.startsWith("image/"))) {

@@ -396,3 +396,20 @@ async def import_urls(body: ImportBody, shop: Installation = Depends(current_sho
             except Exception as exc:  # noqa: BLE001
                 errors.append({"url": url, "error": str(exc)[:200]})
     return {"assets": out, "errors": errors}
+
+
+# -- remove an image from a product ---------------------------------------------
+class RemoveMediaBody(BaseModel):
+    product_id: str
+    media_id: str
+
+
+@router.post("/remove-media")
+async def remove_media(body: RemoveMediaBody, shop: Installation = Depends(current_shop)):
+    try:
+        async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+            await api.delete_media(body.media_id)
+    except SaleorAPIError as exc:
+        raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
+    await notify_storefront(shop.domain, body.product_id, "", "media-removed")
+    return {"removed": body.media_id}

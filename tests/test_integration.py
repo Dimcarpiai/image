@@ -288,3 +288,12 @@ def test_page_images_and_import(saleor):
         assert len(out["assets"]) == 1 and out["assets"][0]["kind"] == "upload" and out["assets"][0]["meta"]["source_url"] == imgs[0]
         assert len(out["errors"]) == 1
         assert c.get(out["assets"][0]["url"]).status_code == 200
+
+
+def test_remove_product_media(saleor):
+    with TestClient(app) as c:
+        prod = c.get("/api/studio/products", headers=_headers(saleor)).json()["items"][0]
+        mid = prod["media"][0]["id"]
+        r = c.post("/api/studio/remove-media", headers=_headers(saleor), json={"product_id": prod["id"], "media_id": mid})
+        assert r.status_code == 200 and r.json()["removed"] == mid
+        assert all(m["id"] != mid for m in saleor.media)
