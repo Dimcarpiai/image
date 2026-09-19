@@ -208,10 +208,6 @@ async def create(body: CreateBody, shop: Installation = Depends(current_shop)):
     enabled = [v for v in body.variants if v.enabled]
     if not enabled:
         raise HTTPException(status_code=400, detail="enable at least one variant")
-    skus = [v.sku for v in enabled if v.sku]
-    if len(set(skus)) != len(skus):
-        raise HTTPException(status_code=400, detail="SKUs must be unique")
-
     report = {"steps": []}
     try:
         async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
@@ -243,10 +239,13 @@ async def create(body: CreateBody, shop: Installation = Depends(current_shop)):
                      "isAvailableForPurchase": True} for c in body.channels])
                 report["steps"].append(f"listed in {len(body.channels)} channel(s)" + ("" if can_publish else " — unpublished: choose a category to publish"))
 
+            fixed = await api.unique_skus([v.sku for v in enabled])
+            if fixed != [v.sku for v in enabled]:
+                report["steps"].append("some SKUs were adjusted to stay unique")
             variant_inputs = []
-            for v in enabled:
+            for v, sku in zip(enabled, fixed):
                 variant_inputs.append({
-                    "sku": v.sku or None,
+                    "sku": sku or None,
                     "attributes": [{"id": k, "dropdown": {"value": val}} if attr_types.get(k, "DROPDOWN") in ("DROPDOWN", "SWATCH")
                                    else {"id": k, "plainText": val} for k, val in v.attributes.items() if val],
                     "trackInventory": True,

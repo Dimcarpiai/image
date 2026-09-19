@@ -37,6 +37,8 @@ class FakeSaleor:
                 form = await request.form(); mid = f"MEDIA{len(self.media) + 1}"; self.media.append({"id": mid})
                 return {"data": {"productMediaCreate": {"errors": [], "media": {"id": mid, "url": self.base + "/media/new.png"}}}}
             body = await request.json(); q, v = body["query"], body.get("variables") or {}
+            if "query SkuExists" in q:
+                return {"data": {"productVariant": {"id": "X"} if v["sku"] in getattr(self, "taken_skus", set()) else None}}
             if "tokenVerify" in q:
                 return {"data": {"tokenVerify": {"isValid": v["token"] == "staff-jwt", "user": {"id": "U"}}}}
             if "query StudioProductSummary" in q:
@@ -268,10 +270,12 @@ def test_add_variants_colour_x_size(saleor):
         assert st["product_type"] == "Shirt" and [a["name"] for a in st["all_attributes"]] == ["Size", "Colour", "Fit"]
         assert st["attributes"]["color"]["id"] == "A_COL" and st["attributes"]["size"]["values"] == ["S", "M"] and st["used_colors"] == ["Burgundy"]
         assert st["existing"][0]["values"] == {"A_SIZE": "S", "A_COL": "Burgundy", "A_FIT": "Slim"}
+        saleor.taken_skus = {"ROS-RUGB-NAV-S"}                  # already used by another product in the shop
         r = c.post("/api/studio/variants/create", headers=H(saleor), json={"product_id": "P1", "colors": ["Burgundy", "Navy"], "sizes": ["S", "M"], "price": 49.0, "stock": 3}).json()
         assert r["count"] == 3                                   # Burgundy/S exists → skipped
         skus = sorted(v["sku"] for v in saleor.bulk_variants)
-        assert skus == ["ROS-RUGB-BUR-M", "ROS-RUGB-NAV-M", "ROS-RUGB-NAV-S"]
+        assert skus == ["ROS-RUGB-BUR-M", "ROS-RUGB-NAV-M", "ROS-RUGB-NAV-S-2"]
+        saleor.taken_skus = set()
         v = saleor.bulk_variants[0]
         assert v["channelListings"] == [{"channelId": "CH1", "price": 49.0}] and v["stocks"] == [{"warehouse": "WH1", "quantity": 3}]
         assert {"id": "A_FIT", "dropdown": {"value": "Slim"}} in v["attributes"]          # required extra attribute copied from an existing variant

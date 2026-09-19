@@ -514,3 +514,33 @@ SaleorAPI.update_product = _update_product
 SaleorAPI.update_variant = _update_variant
 SaleorAPI.update_variant_prices = _update_variant_prices
 SaleorAPI.update_variant_stocks = _update_variant_stocks
+
+
+# --------------------------------------------------------------------------
+# SKU uniqueness across the whole shop
+# --------------------------------------------------------------------------
+SKU_EXISTS = "query SkuExists($sku: String!) { productVariant(sku: $sku) { id } }"
+
+
+async def _sku_exists(self, sku: str) -> bool:
+    try:
+        return bool((await self.execute(SKU_EXISTS, {"sku": sku})).get("productVariant"))
+    except SaleorAPIError:
+        return False
+
+
+async def _unique_skus(self, skus, taken=()):
+    """Make a list of SKUs unique within the list and against Saleor; empty SKUs stay empty."""
+    out, seen = [], set(taken)
+    for sku in skus:
+        if not sku:
+            out.append(sku); continue
+        base, i, cand = sku, 2, sku
+        while cand in seen or await self._sku_exists(cand):
+            cand = f"{base}-{i}"; i += 1
+        seen.add(cand); out.append(cand)
+    return out
+
+
+SaleorAPI._sku_exists = _sku_exists
+SaleorAPI.unique_skus = _unique_skus

@@ -44,6 +44,8 @@ class FakeSaleor:
                 return {"data": {"productMediaCreate": {"errors": [], "media": {"id": mid, "url": self.base + "/media/new.png"}}}}
             body = await request.json(); q, v = body["query"], body.get("variables") or {}
             self.calls.append((q.split("(")[0].split()[-1], v))
+            if "query SkuExists" in q:
+                return {"data": {"productVariant": {"id": "X"} if v["sku"] in getattr(self, "taken_skus", set()) else None}}
             if "tokenVerify" in q:
                 return {"data": {"tokenVerify": {"isValid": v["token"] == "staff-jwt", "user": {"id": "U"}}}}
             if "query BuilderCategories" in q:
@@ -174,9 +176,10 @@ def test_builder_end_to_end(saleor, monkeypatch):
         # storefront was told
         assert saleor.revalidations[-1]["body"]["productId"] == "PNEW" and saleor.revalidations[-1]["auth"] == "Bearer s3"
 
-        # duplicate SKUs rejected
-        bad = dict(body); bad["variants"] = [dict(body["variants"][0]), dict(body["variants"][0])]
-        assert c.post("/api/builder/create", headers=H(saleor), json=bad).status_code == 400
+        # duplicate SKUs are made unique instead of rejected
+        dup = dict(body); dup["variants"] = [dict(body["variants"][0], attributes={"A_SIZE": "S", "A_COL": "Burgundy"}), dict(body["variants"][0], attributes={"A_SIZE": "M", "A_COL": "Burgundy"})]
+        r = c.post("/api/builder/create", headers=H(saleor), json=dup).json()
+        assert [v["sku"] for v in saleor.variants] == ["ROS-POLO-BUR-S", "ROS-POLO-BUR-S-2"] and "adjusted" in " ".join(r["steps"])
 
 
 def test_review_queue_and_pack(saleor, monkeypatch):

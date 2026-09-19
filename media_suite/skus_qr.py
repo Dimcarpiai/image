@@ -64,11 +64,13 @@ async def skus(body: SkuBody, shop: Installation = Depends(current_shop)):
             p = ((await api.execute(VARIANTS_FOR_SKU, {"id": body.product_id})) or {}).get("product")
             if not p:
                 raise HTTPException(status_code=404, detail="product not found")
+            proposed = [make_sku(pattern, _ctx_for(p, v, brand, body.style or "")) for v in p["variants"]]
+            own = {v.get("sku") for v in p["variants"] if v.get("sku")}
+            # unique within the product; against the shop, ignore this product's own current SKUs (they will be replaced)
             rows, seen = [], set()
-            for v in p["variants"]:
-                sku = make_sku(pattern, _ctx_for(p, v, brand, body.style or ""))
+            for v, sku in zip(p["variants"], proposed):
                 base, i = sku, 2
-                while sku in seen:                    # de-duplicate identical combinations
+                while sku in seen or (sku not in own and await api._sku_exists(sku)):
                     sku = f"{base}-{i}"; i += 1
                 seen.add(sku)
                 keep = body.only_empty and bool(v.get("sku"))
@@ -274,7 +276,7 @@ async def variants_create(body: AddVariantsBody, shop: Installation = Depends(cu
                     else:
                         ctx[a["name"].lower().replace(" ", "_")] = val
                 sku = make_sku(pattern, ctx); base, i = sku, 2
-                while sku in skus:
+                while sku in skus or await api._sku_exists(sku):
                     sku = f"{base}-{i}"; i += 1
                 skus.add(sku)
                 variants.append({"sku": sku, "attributes": attr_inputs, "trackInventory": True,
