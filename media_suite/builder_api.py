@@ -237,10 +237,11 @@ async def create(body: CreateBody, shop: Installation = Depends(current_shop)):
             report["steps"].append(f"product created ({product['id']})")
 
             if body.channels:
+                can_publish = bool(body.category_id)
                 await api.update_product_channels(product["id"], [
-                    {"channelId": c["id"], "isPublished": bool(c.get("published", True)), "visibleInListings": True,
+                    {"channelId": c["id"], "isPublished": bool(c.get("published", True)) and can_publish, "visibleInListings": can_publish,
                      "isAvailableForPurchase": True} for c in body.channels])
-                report["steps"].append(f"listed in {len(body.channels)} channel(s)")
+                report["steps"].append(f"listed in {len(body.channels)} channel(s)" + ("" if can_publish else " — unpublished: choose a category to publish"))
 
             variant_inputs = []
             for v in enabled:

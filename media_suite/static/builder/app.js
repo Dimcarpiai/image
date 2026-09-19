@@ -215,6 +215,7 @@
   }
   $("#to-variants").addEventListener("click", () => {
     if (!$("#name-en").value.trim()) return notify("error", "Product name is required.");
+    if (!$("#category").value) notify("error", "No category chosen — the product will be created unpublished. Pick a category to publish it.");
     if (!$("#style-code").value) $("#style-code").value = ($("#name-en").value.split(/\s+/)[0] || "ITEM").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6);
     renderVariantAttrs(); renderBasePrices(); showStep(4);
   });
