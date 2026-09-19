@@ -46,10 +46,11 @@ class FakeSaleor:
             if "query VariantSetup" in q:
                 return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt",
                     "productType": {"id": "PT1", "assignedVariantAttributes": [
-                        {"attribute": {"id": "A_SIZE", "name": "Size", "slug": "size", "inputType": "DROPDOWN", "choices": {"edges": [{"node": {"name": "S"}}, {"node": {"name": "M"}}]}}},
-                        {"attribute": {"id": "A_COL", "name": "Colour", "slug": "color", "inputType": "DROPDOWN", "choices": {"edges": []}}}]},
+                        {"attribute": {"id": "A_SIZE", "name": "Size", "slug": "size", "inputType": "DROPDOWN", "valueRequired": True, "choices": {"edges": [{"node": {"name": "S"}}, {"node": {"name": "M"}}]}}},
+                        {"attribute": {"id": "A_COL", "name": "Colour", "slug": "color", "inputType": "DROPDOWN", "valueRequired": False, "choices": {"edges": []}}},
+                        {"attribute": {"id": "A_FIT", "name": "Fit", "slug": "fit", "inputType": "DROPDOWN", "valueRequired": True, "choices": {"edges": [{"node": {"name": "Regular"}}]}}}]},
                     "channelListings": [{"channel": {"id": "CH1", "name": "Germany", "currencyCode": "EUR"}}],
-                    "variants": [{"id": "V1", "sku": "R-BUR-S", "attributes": [{"attribute": {"id": "A_SIZE", "slug": "size", "name": "Size"}, "values": [{"name": "S"}]}, {"attribute": {"id": "A_COL", "slug": "color", "name": "Colour"}, "values": [{"name": "Burgundy"}]}],
+                    "variants": [{"id": "V1", "sku": "R-BUR-S", "attributes": [{"attribute": {"id": "A_SIZE", "slug": "size", "name": "Size"}, "values": [{"name": "S"}]}, {"attribute": {"id": "A_COL", "slug": "color", "name": "Colour"}, "values": [{"name": "Burgundy"}]}, {"attribute": {"id": "A_FIT", "slug": "fit", "name": "Fit"}, "values": [{"name": "Slim"}]}],
                                   "channelListings": [{"channel": {"id": "CH1"}, "price": {"amount": 49.0}}], "stocks": [{"warehouse": {"id": "WH1"}, "quantity": 5}]}]}}}
             if "query BuilderMeta" in q:
                 return {"data": {"channels": [{"id": "CH1", "name": "Germany", "slug": "germany", "currencyCode": "EUR"}], "warehouses": {"edges": [{"node": {"id": "WH1", "name": "Main"}}]}, "productTypes": {"edges": []}}}
@@ -271,3 +272,6 @@ def test_add_variants_colour_x_size(saleor):
         assert skus == ["ROS-RUGB-BUR-M", "ROS-RUGB-NAV-M", "ROS-RUGB-NAV-S"]
         v = saleor.bulk_variants[0]
         assert v["channelListings"] == [{"channelId": "CH1", "price": 49.0}] and v["stocks"] == [{"warehouse": "WH1", "quantity": 3}]
+        assert {"id": "A_FIT", "dropdown": {"value": "Slim"}} in v["attributes"]          # required extra attribute copied from an existing variant
+        bad = c.post("/api/studio/variants/create", headers=H(saleor), json={"product_id": "P1", "colors": ["Green"], "sizes": []})
+        assert bad.status_code == 400 and "Size" in bad.text

@@ -147,7 +147,7 @@ VARIANT_SETUP = """
 query VariantSetup($id: ID!) {
   product(id: $id) {
     id name
-    productType { id assignedVariantAttributes { attribute { id name slug inputType choices(first: 100) { edges { node { name } } } } } }
+    productType { id assignedVariantAttributes { attribute { id name slug inputType valueRequired choices(first: 100) { edges { node { name } } } } } }
     channelListings { channel { id name currencyCode } }
     variants { id sku attributes { attribute { id slug name } values { name } } channelListings { channel { id } price { amount } } stocks { warehouse { id } quantity } }
   }
@@ -182,11 +182,15 @@ async def variant_setup(product_id: str, shop: Installation = Depends(current_sh
         meta = await api.builder_meta()
     if not p:
         raise HTTPException(status_code=404, detail="product not found")
-    attrs = {}
+    attrs, others = {}, []
     for a in (p["productType"].get("assignedVariantAttributes") or []):
         at = a["attribute"]; k = _kind(at)
+        entry = {"id": at["id"], "name": at["name"], "required": bool(at.get("valueRequired")), "inputType": at.get("inputType"),
+                 "values": [c["node"]["name"] for c in (at.get("choices") or {}).get("edges", [])]}
         if k in ("color", "size") and k not in attrs:
-            attrs[k] = {"id": at["id"], "name": at["name"], "values": [c["node"]["name"] for c in (at.get("choices") or {}).get("edges", [])]}
+            attrs[k] = entry
+        else:
+            others.append(entry)
     existing = []
     for v in p["variants"]:
         combo = {}
@@ -198,8 +202,14 @@ async def variant_setup(product_id: str, shop: Installation = Depends(current_sh
     used_colors = sorted({e["color"] for e in existing if e.get("color")}); used_sizes = sorted({e["size"] for e in existing if e.get("size")})
     first = p["variants"][0] if p["variants"] else None
     price = (first["channelListings"][0]["price"]["amount"] if first and first["channelListings"] and first["channelListings"][0].get("price") else None)
-    return {"attributes": attrs, "existing": existing, "used_colors": used_colors, "used_sizes": used_sizes, "default_price": price,
-            "channels": [c["channel"] for c in p["channelListings"]], "warehouses": meta["warehouses"]}
+    # values of the remaining (non colour/size) attributes on the first existing variant, used to fill required ones
+    other_values = {}
+    if first:
+        for a in first["attributes"]:
+            if a["values"]:
+                other_values[a["attribute"]["id"]] = a["values"][0]["name"]
+    return {"attributes": attrs, "others": others, "other_values": other_values, "existing": existing, "used_colors": used_colors, "used_sizes": used_sizes,
+            "default_price": price, "channels": [c["channel"] for c in p["channelListings"]], "warehouses": meta["warehouses"]}
 
 
 @router.post("/variants/create")
@@ -210,6 +220,19 @@ async def variants_create(body: AddVariantsBody, shop: Installation = Depends(cu
         raise HTTPException(status_code=400, detail="this product type has no colour variant attribute")
     if body.sizes and "size" not in attrs:
         raise HTTPException(status_code=400, detail="this product type has no size variant attribute")
+    if attrs.get("size", {}).get("required") and not body.sizes:
+        raise HTTPException(status_code=400, detail="Size is a required attribute on this product type — tick at least one size")
+    if attrs.get("color", {}).get("required") and not body.colors:
+        raise HTTPException(status_code=400, detail="Colour is a required attribute on this product type — tick at least one colour")
+    extra_inputs = []
+    for o in setup["others"]:
+        val = setup["other_values"].get(o["id"]) or (o["values"][0] if o["values"] else None)
+        if o["required"] and not val:
+            raise HTTPException(status_code=400, detail=f"attribute '{o['name']}' is required but has no value to copy — add a variant with it in the dashboard first")
+        if val and o["inputType"] in ("DROPDOWN", "SWATCH"):
+            extra_inputs.append({"id": o["id"], "dropdown": {"value": val}})
+        elif val and o["inputType"] == "PLAIN_TEXT":
+            extra_inputs.append({"id": o["id"], "plainText": val})
     colors = body.colors or [""]; sizes = body.sizes or [""]
     have = {(e.get("color", "") or "", e.get("size", "") or "") for e in setup["existing"]}
     st = db.get_settings(shop.domain); defaults = st.get("builder_defaults", {})
@@ -223,7 +246,7 @@ async def variants_create(body: AddVariantsBody, shop: Installation = Depends(cu
             for size in sizes:
                 if (color, size) in have:
                     continue
-                attr_inputs = []
+                attr_inputs = list(extra_inputs)
                 if color: attr_inputs.append({"id": attrs["color"]["id"], "dropdown": {"value": color}})
                 if size: attr_inputs.append({"id": attrs["size"]["id"], "dropdown": {"value": size}})
                 sku = make_sku(pattern, {"brand": brand, "style": style, "color": color, "size": size}); base, i = sku, 2
