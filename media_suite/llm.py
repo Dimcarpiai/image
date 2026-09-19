@@ -143,6 +143,28 @@ async def qc_check(provider: str, model: Optional[str], reference: Optional[Imag
         return {"status": "unchecked", "issues": [text[:120]]}
 
 
+DEFAULT_TEMPLATE = """INTRO: 1-2 sentences, editorial tone, naming the garment, its defining material/pattern and the occasion or collection. No prices, no exclamation marks.
+PRODUCT DETAILS (bullet list, in this order, only items that are known from the data):
+- Colour and material / pattern
+- Lining (e.g. Unlined)
+- Pockets
+- Closure (buttons, zip, hook)
+- Cut / fit / leg / sleeve
+- Key measurements with the reference size (e.g. Length: 92.5 cm based on a size 38 (IT))
+- Made in
+- Fabric composition (e.g. 70% Cotton, 30% Polyester)
+- Care
+Never invent a fact that is not in the data; omit the bullet instead."""
+
+COPY_SYSTEM_TEMPLATE = (
+    "You are a senior e-commerce copywriter for a fashion store. You receive the current product data as JSON and a house TEMPLATE. "
+    "Rewrite the product copy to follow the template exactly, in the requested languages. Facts must come from the data (attributes, existing text, variants); "
+    "never invent materials, measurements, origin or care instructions - omit unknown bullets. Keep brand and product names. No exclamation marks. "
+    "Return ONLY a JSON object with keys: name_en, name_de, intro_en (array of 1-2 short paragraphs), intro_de, details_en (array of bullet strings, no leading dashes), "
+    "details_de, seo_title_en (<=60 chars), seo_description_en (<=155 chars), seo_title_de, seo_description_de, "
+    "variant_names (object: variant id -> short customer-facing name such as \"Navy / M\"), notes (one sentence on what you changed)."
+)
+
 COPY_SYSTEM = (
     "You are a senior e-commerce copywriter for a fashion store. You receive the current product data as JSON and must return improved copy as JSON. "
     "Rules: never invent facts (materials, care, origin, measurements) that are not in the input; keep brand and product names; write for the customer, "
@@ -153,10 +175,14 @@ COPY_SYSTEM = (
 )
 
 
-async def improve_copy(provider: str, model: Optional[str], current: dict, tone: str, languages: List[str], instructions: str, api_key: str) -> dict:
+async def improve_copy(provider: str, model: Optional[str], current: dict, tone: str, languages: List[str], instructions: str, api_key: str, template: str = "") -> dict:
     if provider not in BACKENDS:
         raise ProviderError("copywriting needs an OpenAI, Gemini or Local GPU key")
-    user = (f"Tone: {tone or 'clear and premium'}. Languages: {', '.join(languages) or 'en, de'}. "
+    tpl = (template or DEFAULT_TEMPLATE).strip()
+    user = (f"TEMPLATE:\n{tpl}\n\nTone: {tone or 'clear and premium'}. Languages: {', '.join(languages) or 'en, de'}. "
             f"Extra instructions: {instructions or 'none'}.\nCurrent product data:\n{json.dumps(current, ensure_ascii=False)[:12000]}\nReturn the JSON now.")
-    text = await BACKENDS[provider](model or DEFAULT_MODELS[provider], COPY_SYSTEM, user, [], api_key, True)
-    return _json_from_text(text)
+    out = _json_from_text(await BACKENDS[provider](model or DEFAULT_MODELS[provider], COPY_SYSTEM_TEMPLATE, user, [], api_key, True))
+    for lang in ("en", "de"):   # tolerate models that still answer with description_* instead of intro/details
+        if f"description_{lang}" in out and f"intro_{lang}" not in out:
+            out[f"intro_{lang}"] = out[f"description_{lang}"]
+    return out

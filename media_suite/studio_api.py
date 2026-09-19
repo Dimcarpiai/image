@@ -17,7 +17,7 @@ from .providers import PROVIDERS, catalog, estimate, find_model
 from .saleor_api import SaleorAPI, SaleorAPIError
 from .storefront import notify_storefront
 from .clone import clone_product, _attr_input
-from .saleor_api import editorjs
+from .saleor_api import editorjs, parse_editorjs
 from .scrape import fetch_page_images
 from .jobs import normalize_image, _check_public_url
 from .providers.base import ProviderError

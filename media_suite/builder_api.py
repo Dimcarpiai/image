@@ -13,7 +13,8 @@ from .db import Installation, db
 from .jobs import asset_dir, normalize_image, provider_key
 from .llm import DEFAULT_MODELS, draft_product, improve_copy
 from .providers.base import ProviderError
-from .saleor_api import SaleorAPI, SaleorAPIError, editorjs
+from .saleor_api import SaleorAPI, SaleorAPIError, editorjs, parse_editorjs
+from .llm import DEFAULT_TEMPLATE
 from .storefront import notify_storefront
 from .studio_api import _asset_out, current_shop
 
@@ -60,6 +61,7 @@ async def meta(shop: Installation = Depends(current_shop)):
         raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
     st = db.get_settings(shop.domain)
     data["defaults"] = st.get("builder_defaults", {})
+    data["copy_template"] = st.get("copy_template") or DEFAULT_TEMPLATE
     data["llm"] = {"provider": st.get("llm", {}).get("provider", ""), "model": st.get("llm", {}).get("model", ""),
                    "available": [p for p in ("openai", "gemini", "local") if st.get("keys", {}).get(p)]}
     data["storefront"] = {"revalidate_url": st.get("storefront", {}).get("revalidate_url", ""),
@@ -69,6 +71,7 @@ async def meta(shop: Installation = Depends(current_shop)):
 
 class BuilderSettings(BaseModel):
     defaults: Optional[dict] = None
+    copy_template: Optional[str] = None
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     revalidate_url: Optional[str] = None
@@ -79,7 +82,9 @@ class BuilderSettings(BaseModel):
 async def put_settings(body: BuilderSettings, shop: Installation = Depends(current_shop)):
     st = db.get_settings(shop.domain)
     if body.defaults is not None:
-        st["builder_defaults"] = body.defaults
+        st["builder_defaults"] = {**st.get("builder_defaults", {}), **body.defaults}
+    if body.copy_template is not None:
+        st["copy_template"] = body.copy_template
     if body.llm_provider is not None or body.llm_model is not None:
         st["llm"] = {"provider": body.llm_provider or st.get("llm", {}).get("provider", ""), "model": (body.llm_model or "").strip()}
     if body.revalidate_url is not None:
@@ -306,8 +311,10 @@ async def copy_source(product_id: str, shop: Installation = Depends(current_shop
     return {
         "id": p["id"], "name": p["name"], "slug": p["slug"], "category": (p.get("category") or {}).get("name"), "product_type": (p.get("productType") or {}).get("name"),
         "attributes": {a["attribute"]["name"]: ", ".join(v.get("name") or v.get("plainText") or "" for v in a["values"]) for a in p["attributes"] if a["values"]},
-        "description_en": _paras_from_editor(p.get("description")), "seo_title_en": p.get("seoTitle") or "", "seo_description_en": p.get("seoDescription") or "",
-        "name_de": tr.get("name") or "", "description_de": _paras_from_editor(tr.get("description")), "seo_title_de": tr.get("seoTitle") or "", "seo_description_de": tr.get("seoDescription") or "",
+        "intro_en": parse_editorjs(p.get("description"))["intro"], "details_en": parse_editorjs(p.get("description"))["details"],
+        "seo_title_en": p.get("seoTitle") or "", "seo_description_en": p.get("seoDescription") or "",
+        "name_de": tr.get("name") or "", "intro_de": parse_editorjs(tr.get("description"))["intro"], "details_de": parse_editorjs(tr.get("description"))["details"],
+        "seo_title_de": tr.get("seoTitle") or "", "seo_description_de": tr.get("seoDescription") or "",
         "variants": [{"id": v["id"], "name": v.get("name") or "", "sku": v.get("sku") or "", "attributes": {a["attribute"]["name"]: ", ".join(x["name"] for x in a["values"]) for a in v["attributes"] if a["values"]}} for v in p["variants"]],
     }
 
@@ -329,7 +336,8 @@ async def improve(body: ImproveBody, shop: Installation = Depends(current_shop))
     if not keys.get(provider):
         raise HTTPException(status_code=400, detail=f"no API key for {provider}")
     try:
-        result = await improve_copy(provider, model or DEFAULT_MODELS.get(provider), current, body.tone, body.languages, body.instructions, provider_key(shop.domain, provider))
+        template = db.get_settings(shop.domain).get("copy_template") or DEFAULT_TEMPLATE
+        result = await improve_copy(provider, model or DEFAULT_MODELS.get(provider), current, body.tone, body.languages, body.instructions, provider_key(shop.domain, provider), template)
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return {"provider": provider, "model": model or DEFAULT_MODELS.get(provider), "current": current, "suggestion": result}
@@ -338,11 +346,14 @@ async def improve(body: ImproveBody, shop: Installation = Depends(current_shop))
 class ApplyCopyBody(BaseModel):
     product_id: str
     name_en: Optional[str] = None
-    description_en: Optional[List[str]] = None
+    intro_en: Optional[List[str]] = None
+    details_en: Optional[List[str]] = None
     seo_title_en: Optional[str] = None
     seo_description_en: Optional[str] = None
     name_de: Optional[str] = None
-    description_de: Optional[List[str]] = None
+    intro_de: Optional[List[str]] = None
+    details_de: Optional[List[str]] = None
+    details_title: str = "Product Details"
     seo_title_de: Optional[str] = None
     seo_description_de: Optional[str] = None
     variant_names: Dict[str, str] = {}
@@ -355,13 +366,16 @@ async def apply_copy(body: ApplyCopyBody, shop: Installation = Depends(current_s
         async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
             inp = {}
             if body.name_en is not None: inp["name"] = body.name_en.strip()
-            if body.description_en is not None: inp["description"] = editorjs(body.description_en)
+            if body.intro_en is not None or body.details_en is not None:
+                cur = parse_editorjs(current_desc) if (current_desc := (await api.execute(COPY_SOURCE, {"id": body.product_id}))["product"]["description"]) else {"intro": [], "details": []}
+                inp["description"] = editorjs(body.intro_en if body.intro_en is not None else cur["intro"], body.details_en if body.details_en is not None else cur["details"], body.details_title)
             if body.seo_title_en is not None or body.seo_description_en is not None:
                 inp["seo"] = {"title": (body.seo_title_en or "")[:70], "description": (body.seo_description_en or "")[:300]}
             if inp:
                 await api.update_product(body.product_id, inp); steps.append("English texts updated")
-            if body.name_de or body.description_de:
-                await api.translate_product(body.product_id, "DE", body.name_de or "", editorjs(body.description_de or []), (body.seo_title_de or "")[:70], (body.seo_description_de or "")[:300])
+            if body.name_de or body.intro_de or body.details_de:
+                await api.translate_product(body.product_id, "DE", body.name_de or "", editorjs(body.intro_de or [], body.details_de or [], "Produktdetails" if body.details_title == "Product Details" else body.details_title),
+                                            (body.seo_title_de or "")[:70], (body.seo_description_de or "")[:300])
                 steps.append("German translation updated")
             for vid, name in body.variant_names.items():
                 if name and name.strip():

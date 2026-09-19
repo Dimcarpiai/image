@@ -315,10 +315,31 @@ query BuilderProductSlug($id: ID!) { product(id: $id) { id slug name } }
 """
 
 
-def editorjs(paragraphs) -> str:
-    """Saleor stores descriptions as EditorJS JSON."""
-    blocks = [{"type": "paragraph", "data": {"text": p}} for p in paragraphs if p]
+def editorjs(paragraphs, details=None, details_title="Product Details") -> str:
+    """Saleor stores descriptions as EditorJS JSON: intro paragraphs, then an optional heading + bullet list."""
+    blocks = [{"type": "paragraph", "data": {"text": p}} for p in (paragraphs or []) if p]
+    items = [d for d in (details or []) if d]
+    if items:
+        blocks.append({"type": "header", "data": {"text": details_title, "level": 3}})
+        blocks.append({"type": "list", "data": {"style": "unordered", "items": items}})
     return json.dumps({"time": 0, "blocks": blocks, "version": "2.22.2"})
+
+
+def parse_editorjs(description_json) -> dict:
+    """Inverse of editorjs(): {"intro": [...], "details": [...]} from Saleor's description JSON."""
+    import re as _re
+    try:
+        blocks = json.loads(description_json or "{}").get("blocks", [])
+    except (json.JSONDecodeError, AttributeError):
+        return {"intro": [], "details": []}
+    strip = lambda t: _re.sub(r"<[^>]+>", "", t or "")
+    intro, details = [], []
+    for b in blocks:
+        if b.get("type") == "paragraph":
+            intro.append(strip(b["data"].get("text", "")))
+        elif b.get("type") == "list":
+            details += [strip(i if isinstance(i, str) else i.get("content", "")) for i in b["data"].get("items", [])]
+    return {"intro": [x for x in intro if x], "details": [x for x in details if x]}
 
 
 class BuilderMixin:

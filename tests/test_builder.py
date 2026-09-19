@@ -324,9 +324,9 @@ def test_settings_budget_estimate_and_bulk(saleor, monkeypatch):
 
 
 def test_copywriter_improve_and_apply(saleor, monkeypatch):
-    async def fake_improve(provider, model, current, tone, languages, instructions, api_key):
-        assert current["name"] == "Polo Navy" and "cotton" in instructions and tone == "short and punchy"
-        return {"name_en": "Navy Cotton Polo", "description_en": ["Better text."], "name_de": "Marineblaues Polo", "description_de": ["Besserer Text."],
+    async def fake_improve(provider, model, current, tone, languages, instructions, api_key, template=""):
+        assert current["name"] == "Polo Navy" and "cotton" in instructions and tone == "short and punchy" and "PRODUCT DETAILS" in template
+        return {"name_en": "Navy Cotton Polo", "intro_en": ["Better text."], "details_en": ["100% Cotton", "Made in Italy"], "name_de": "Marineblaues Polo", "intro_de": ["Besserer Text."], "details_de": ["100% Baumwolle"],
                 "seo_title_en": "Navy Polo", "seo_description_en": "d", "variant_names": {"V0": "Navy / S"}, "notes": "Shortened."}
     monkeypatch.setattr("media_suite.builder_api.improve_copy", fake_improve)
     saleor.edit_source = saleor.edit_source
@@ -336,6 +336,14 @@ def test_copywriter_improve_and_apply(saleor, monkeypatch):
         assert src["name"] == "Polo Navy" and src["variants"][0]["id"] == "V0"
         r = c.post("/api/builder/improve", headers=H(saleor), json={"product_id": "P1", "tone": "short and punchy", "instructions": "mention cotton"}).json()
         assert r["suggestion"]["name_en"] == "Navy Cotton Polo" and r["current"]["name"] == "Polo Navy"
-        a = c.post("/api/builder/apply-copy", headers=H(saleor), json={"product_id": "P1", "name_en": "Navy Cotton Polo", "description_en": ["Better text."], "name_de": "Marineblaues Polo", "description_de": ["Besserer Text."], "variant_names": {"V0": "Navy / S"}}).json()
+        a = c.post("/api/builder/apply-copy", headers=H(saleor), json={"product_id": "P1", "name_en": "Navy Cotton Polo", "intro_en": ["Better text."], "details_en": ["100% Cotton", "Made in Italy"], "name_de": "Marineblaues Polo", "intro_de": ["Besserer Text."], "details_de": ["100% Baumwolle"], "variant_names": {"V0": "Navy / S"}}).json()
         assert a["steps"] == ["English texts updated", "German translation updated", "1 variant name(s) updated"]
         assert saleor.updated_product["input"]["name"] == "Navy Cotton Polo" and saleor.updated_variant["input"] == {"name": "Navy / S"}
+        blocks = json.loads(saleor.updated_product["input"]["description"])["blocks"]
+        assert [b["type"] for b in blocks] == ["paragraph", "header", "list"] and blocks[2]["data"]["items"] == ["100% Cotton", "Made in Italy"] and blocks[1]["data"]["text"] == "Product Details"
+        de = json.loads(saleor.translation["input"]["description"])["blocks"]
+        assert de[1]["data"]["text"] == "Produktdetails"
+        # round-trip: the structured description is parsed back into intro + details
+        saleor.edit_source = {**saleor.edit_source, "description": saleor.updated_product["input"]["description"]}
+        src = c.get("/api/builder/copy/P1", headers=H(saleor)).json()
+        assert src["intro_en"] == ["Better text."] and src["details_en"] == ["100% Cotton", "Made in Italy"]

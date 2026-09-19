@@ -58,7 +58,7 @@
     $("#llm-model").value = m.llm.model || "";
     $("#sku-pattern").value = d.sku_pattern || "{brand}-{style}-{color:3}-{size}";
     $("#brand-code").value = d.brand || "ROS";
-    $("#reval-url").value = m.storefront.revalidate_url || "";
+    $("#reval-url").value = m.storefront.revalidate_url || ""; $("#copy-template").value = m.copy_template || "";
     $("#reval-secret").placeholder = m.storefront.has_secret ? "•••••• (saved)" : "optional";
     if (!m.llm.available.length) { $("#settings").hidden = false; $("#settings-msg").textContent = "Add an OpenAI or Gemini key in AI Studio → API keys to enable AI drafting."; }
   }
@@ -68,7 +68,7 @@
     try {
       await api("/api/builder/settings", { method: "PUT", body: JSON.stringify({
         defaults: { sku_pattern: $("#sku-pattern").value.trim(), brand: $("#brand-code").value.trim(), ptype: $("#ptype").value, category: $("#category").value },
-        llm_provider: $("#llm-provider").value, llm_model: $("#llm-model").value.trim(),
+        llm_provider: $("#llm-provider").value, llm_model: $("#llm-model").value.trim(), copy_template: $("#copy-template").value,
         revalidate_url: $("#reval-url").value.trim(), revalidate_secret: $("#reval-secret").value }) });
       $("#reval-secret").value = ""; $("#settings-msg").textContent = "Saved."; notify("success", "Settings saved");
     } catch (e) { notify("error", e.message); }
@@ -97,7 +97,7 @@
 
   // ---- copy mode ----------------------------------------------------------------
   const CP = { products: [], cursor: null, search: "", product: null, current: null, suggestion: null };
-  const FIELDS = [["name_en", "Title (EN)", "input"], ["name_de", "Title (DE)", "input"], ["description_en", "Description (EN)", "text"], ["description_de", "Description (DE)", "text"],
+  const FIELDS = [["name_en", "Title (EN)", "input"], ["name_de", "Title (DE)", "input"], ["intro_en", "Intro (EN)", "text"], ["intro_de", "Intro (DE)", "text"], ["details_en", "Product Details (EN) — one per line", "list"], ["details_de", "Produktdetails (DE) — one per line", "list"],
     ["seo_title_en", "SEO title (EN)", "input"], ["seo_description_en", "SEO description (EN)", "input"], ["seo_title_de", "SEO title (DE)", "input"], ["seo_description_de", "SEO description (DE)", "input"]];
   $("#show-wizard").addEventListener("click", (e) => { e.preventDefault(); $("#copy-mode").hidden = true; $("#wizard").hidden = false; });
   async function cpLoad(reset) {
@@ -116,13 +116,14 @@
     try { CP.current = await api(`/api/builder/copy/${encodeURIComponent(p.id)}`); $("#cp-title").textContent = CP.current.name; $("#cp-sub").textContent = [CP.current.product_type, CP.current.category, ...Object.entries(CP.current.attributes).map(([k, v]) => `${k}: ${v}`)].filter(Boolean).join(" · "); cpRender(); $("#cp-msg").textContent = ""; }
     catch (e) { $("#cp-msg").textContent = e.message; }
   }
-  const asText = (v) => Array.isArray(v) ? v.join("\n\n") : (v || "");
+  const asText = (v, kind) => Array.isArray(v) ? v.join(kind === "list" ? "\n" : "\n\n") : (v || "");
   function cpRender() {
     const box = $("#cp-fields"); box.replaceChildren(); const cur = CP.current, sug = CP.suggestion || {};
     for (const [key, label, kind] of FIELDS) {
-      const before = asText(cur[key]); const after = key in sug ? asText(sug[key]) : before;
-      const left = kind === "text" ? el("textarea", { rows: 5, readonly: true }, before) : el("input", { value: before, readonly: true });
-      const right = kind === "text" ? el("textarea", { rows: 5, "data-key": key }, after) : el("input", { "data-key": key, value: after });
+      const before = asText(cur[key], kind); const after = key in sug ? asText(sug[key], kind) : before;
+      const rows = kind === "list" ? 9 : 4;
+      const left = kind !== "input" ? el("textarea", { rows, readonly: true }, before) : el("input", { value: before, readonly: true });
+      const right = kind !== "input" ? el("textarea", { rows, "data-key": key }, after) : el("input", { "data-key": key, value: after });
       if (key in sug && after !== before) right.classList.add("changed");
       box.append(el("div", { class: "cp-row" }, el("label", {}, label, left), el("label", {}, key in sug ? el("span", {}, label, " ", el("span", { class: "badge badge-ok" }, "proposal")) : label, right)));
     }
@@ -139,7 +140,7 @@
   $("#cp-apply").addEventListener("click", async () => {
     const btn = $("#cp-apply"); btn.disabled = true; $("#cp-apply-msg").textContent = "Saving…";
     const body = { product_id: CP.product.id, variant_names: {} };
-    for (const [key, , kind] of FIELDS) { const elm = $(`#cp-fields [data-key="${key}"]`); const val = elm.value.trim(); const before = asText(CP.current[key]).trim(); if (val === before) continue; body[key] = kind === "text" ? val.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean) : val; }
+    for (const [key, , kind] of FIELDS) { const elm = $(`#cp-fields [data-key="${key}"]`); const val = elm.value.trim(); const before = asText(CP.current[key], kind).trim(); if (val === before) continue; body[key] = kind === "text" ? val.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean) : kind === "list" ? val.split(/\n/).map((x) => x.replace(/^[-*•]\s*/, "").trim()).filter(Boolean) : val; }
     for (const tr of $("#cp-variants").querySelectorAll("tbody tr")) { const v = CP.current.variants.find((x) => x.id === tr.dataset.id); const val = tr.querySelector("input[data-vname]").value.trim(); if (v && val && val !== v.name) body.variant_names[v.id] = val; }
     try { const r = await api("/api/builder/apply-copy", { method: "POST", body: JSON.stringify(body) }); $("#cp-apply-msg").textContent = r.steps.join(", ") || "Nothing changed."; notify("success", r.steps.join(", ") || "Nothing changed"); CP.current = await api(`/api/builder/copy/${encodeURIComponent(CP.product.id)}`); CP.suggestion = null; cpRender(); $("#cp-title").textContent = CP.current.name; }
     catch (e) { $("#cp-apply-msg").textContent = e.message; } finally { btn.disabled = false; }
