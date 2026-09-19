@@ -115,7 +115,7 @@
   // ---- 2 · tasks --------------------------------------------------------------------
   function renderTasks() {
     const g = $("#task-grid"); g.replaceChildren();
-    for (const t of S.tasks.tasks) g.append(el("button", { class: `task${S.task === t.id ? " active" : ""}`, onclick: () => { S.task = t.id; renderTasks(); renderRefs(); renderOptions(); renderModelParams(); } }, el("strong", {}, t.label), el("span", {}, t.help)));
+    for (const t of S.tasks.tasks) g.append(el("button", { class: `task${S.task === t.id ? " active" : ""}`, onclick: () => { S.task = t.id; renderTasks(); for (const f of [renderOptions, renderRefs, renderModelParams]) { try { f(); } catch (err) { console.error(f.name, err); } } } }, el("strong", {}, t.label), el("span", {}, t.help)));
 
   }
 
@@ -131,8 +131,10 @@
   };
   function renderRefs() {
     const main = $("#refs"), more = $("#refs-more"); main.replaceChildren(); more.replaceChildren();
+    S.refs.model_asset_ids = S.refs.model_asset_ids || []; S.refs.fabric_asset_ids = S.refs.fabric_asset_ids || []; S.refs.product_urls = S.refs.product_urls || [];
     for (const slot of REF_SLOTS[S.task] || []) {
-      const items = slotItems(slot.key);
+      let items = [];
+      try { items = slotItems(slot.key); } catch (err) { console.error("slot", slot.key, err); }
       const tiles = el("div", { class: "ref-tiles" });
       for (const it of items) tiles.append(el("div", { class: "ref-tile" }, el("img", { src: it.thumb, alt: "" }), el("button", { class: "btn btn-sm del", onclick: () => removeRef(slot.key, it.id) }, "✕")));
       if (slot.key === "product" && !items.length && !S.product.media.length) {
