@@ -374,24 +374,29 @@
   const paras = (t) => t.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
   $("#product-menu").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v === "edit") $("#edit-product").click(); if (v === "clone") $("#clone-product").click(); if (v === "variants") openAddVariants(); });
   async function openAddVariants() {
-    if (!S.product) return; const dlg = $("#variants-dialog"); $("#av-msg").textContent = "Loading…"; $("#av-count").textContent = ""; dlg.showModal();
+    if (!S.product) return; const dlg = $("#variants-dialog"); $("#av-msg").textContent = "Loading…"; $("#av-count").textContent = ""; $("#av-attrs").replaceChildren(); $("#av-existing").replaceChildren(); dlg.showModal();
     try {
       const st = await api(`/api/studio/variant-setup/${encodeURIComponent(S.product.id)}`);
-      const sel = { colors: new Set(), sizes: new Set() };
-      const render = (key, boxId, known, used) => {
-        const box = $(boxId); box.replaceChildren();
-        const all = [...new Set([...known, ...used, ...sel[key]])];
-        for (const v of all) box.append(chip(v + (used.includes(v) ? " ✓" : ""), sel[key].has(v), () => { sel[key].has(v) ? sel[key].delete(v) : sel[key].add(v); render(key, boxId, known, used); count(); }));
-        box.append(el("input", { placeholder: "add ↵", style: "width:100px", onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) { sel[key].add(e.target.value.trim()); render(key, boxId, known, used); count(); } } }));
-        const a = st.attributes[key === "colors" ? "color" : "size"];
-        if (!a) box.append(el("span", { class: "muted" }, `no ${key.slice(0, -1)} attribute on this product type`)); else if (a.required) box.append(el("span", { class: "muted" }, "required"));
-      };
-      const count = () => { const c = sel.colors.size || 1, z = sel.sizes.size || 1; const have = new Set(st.existing.map((e) => `${e.color || ""}|${e.size || ""}`)); let n = 0; for (const col of (sel.colors.size ? sel.colors : [""])) for (const sz of (sel.sizes.size ? sel.sizes : [""])) if (!have.has(`${col}|${sz}`)) n++; $("#av-count").textContent = `${n} new variant(s) will be created (${c} colour × ${z} size, existing ones skipped)`; };
-      render("colors", "#av-colors", st.attributes.color?.values || [], st.used_colors); render("sizes", "#av-sizes", st.attributes.size?.values || [], st.used_sizes);
-      $("#av-price").value = st.default_price ?? ""; const req = st.others.filter((o) => o.required).map((o) => `${o.name} = ${st.other_values[o.id] || o.values[0] || "?"}`);
-      $("#av-msg").textContent = (st.existing.length ? `${st.existing.length} variant(s) exist already. ` : "No variants yet. ") + (req.length ? `Other required attributes will be copied: ${req.join(", ")}.` : ""); count();
+      // 1. what the product type defines
+      $("#av-type").replaceChildren(el("strong", {}, `Product type: ${st.product_type || "?"}`), el("span", {}, " · variant attributes: "),
+        ...(st.all_attributes.length ? st.all_attributes.map((a, i) => el("span", {}, (i ? ", " : "") + a.name + (a.required ? " (required)" : ""))) : [el("span", {}, "none — this product type has no variant attributes")]));
+      // 2. existing variants
+      const ex = $("#av-existing"); ex.replaceChildren(el("h3", { style: "margin:4px 0 0" }, `Existing variants (${st.existing.length})`));
+      if (st.existing.length) { const t = el("table", { class: "products" }, el("thead", {}, el("tr", {}, el("th", {}, "SKU"), ...st.all_attributes.map((a) => el("th", {}, a.name)))));
+        const tb = el("tbody"); for (const e of st.existing) tb.append(el("tr", {}, el("td", {}, e.sku || "—"), ...st.all_attributes.map((a) => el("td", {}, e.values[a.id] || "—")))); t.append(tb); ex.append(el("div", { class: "table-wrap" }, t)); }
+      else ex.append(el("p", { class: "muted" }, "No variants yet."));
+      // 3. one chip row per attribute
+      const sel = {}; const box = $("#av-attrs");
+      const count = () => { const axes = st.all_attributes.filter((a) => (sel[a.id] || new Set()).size); if (!axes.length) { $("#av-count").textContent = "Choose values to see how many variants will be created."; return; } let combos = [[]]; for (const a of axes) combos = combos.flatMap((c) => [...sel[a.id]].map((v) => [...c, [a.id, v]])); const have = new Set(st.existing.map((e) => axes.map((a) => e.values[a.id] || "").join("|"))); const n = combos.filter((c) => !have.has(c.map((x) => x[1]).join("|"))).length; $("#av-count").textContent = `${n} new variant(s) will be created (${axes.map((a) => `${sel[a.id].size} ${a.name.toLowerCase()}`).join(" × ")}, existing skipped)`; };
+      const renderAttr = (a) => { sel[a.id] = sel[a.id] || new Set(); const row = el("div", { class: "values" }); const all = [...new Set([...a.values, ...a.used, ...sel[a.id]])];
+        for (const v of all) row.append(chip(v + (a.used.includes(v) ? " ✓" : ""), sel[a.id].has(v), () => { sel[a.id].has(v) ? sel[a.id].delete(v) : sel[a.id].add(v); rerender(); }));
+        row.append(el("input", { placeholder: "add ↵", style: "width:100px", onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) { sel[a.id].add(e.target.value.trim()); rerender(); } } }));
+        return el("div", { class: "opt-row" }, el("span", { class: "opt-label" }, a.name + (a.required ? " *" : "")), row); };
+      const rerender = () => { box.replaceChildren(...st.all_attributes.map(renderAttr)); count(); };
+      rerender();
+      $("#av-price").value = st.default_price ?? ""; $("#av-msg").textContent = "Leave an attribute without a choice to copy its value from the first existing variant. ✓ = value already in use.";
       $("#av-go").onclick = async () => { const btn = $("#av-go"); btn.disabled = true; $("#av-msg").textContent = "Creating…";
-        try { const r = await api("/api/studio/variants/create", { method: "POST", body: JSON.stringify({ product_id: S.product.id, colors: [...sel.colors], sizes: [...sel.sizes], price: $("#av-price").value === "" ? null : Number($("#av-price").value), stock: Number($("#av-stock").value || 0) }) });
+        try { const values = Object.fromEntries(Object.entries(sel).map(([k, v]) => [k, [...v]])); const r = await api("/api/studio/variants/create", { method: "POST", body: JSON.stringify({ product_id: S.product.id, values, price: $("#av-price").value === "" ? null : Number($("#av-price").value), stock: Number($("#av-stock").value || 0) }) });
           dlg.close(); notify("success", r.count ? `${r.count} variant(s) created` : r.skipped); S.variants = null; } catch (e) { $("#av-msg").textContent = e.message; } finally { btn.disabled = false; } };
     } catch (e) { $("#av-msg").textContent = e.message; }
   }

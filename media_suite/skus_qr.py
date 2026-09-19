@@ -147,7 +147,7 @@ VARIANT_SETUP = """
 query VariantSetup($id: ID!) {
   product(id: $id) {
     id name
-    productType { id assignedVariantAttributes { attribute { id name slug inputType valueRequired choices(first: 100) { edges { node { name } } } } } }
+    productType { id name assignedVariantAttributes { attribute { id name slug inputType valueRequired choices(first: 100) { edges { node { name } } } } } }
     channelListings { channel { id name currencyCode } }
     variants { id sku attributes { attribute { id slug name } values { name } } channelListings { channel { id } price { amount } } stocks { warehouse { id } quantity } }
   }
@@ -159,6 +159,7 @@ class AddVariantsBody(BaseModel):
     product_id: str
     colors: List[str] = []
     sizes: List[str] = []
+    values: Dict[str, List[str]] = {}    # attribute id -> chosen values (generic form; colors/sizes kept for convenience)
     price: Optional[float] = None       # default: price of the first existing variant per channel
     stock: int = 0
     brand: Optional[str] = None
@@ -182,23 +183,30 @@ async def variant_setup(product_id: str, shop: Installation = Depends(current_sh
         meta = await api.builder_meta()
     if not p:
         raise HTTPException(status_code=404, detail="product not found")
-    attrs, others = {}, []
+    attrs, others, all_attrs = {}, [], []
     for a in (p["productType"].get("assignedVariantAttributes") or []):
         at = a["attribute"]; k = _kind(at)
-        entry = {"id": at["id"], "name": at["name"], "required": bool(at.get("valueRequired")), "inputType": at.get("inputType"),
+        entry = {"id": at["id"], "name": at["name"], "kind": k, "required": bool(at.get("valueRequired")), "inputType": at.get("inputType"),
                  "values": [c["node"]["name"] for c in (at.get("choices") or {}).get("edges", [])]}
+        all_attrs.append(entry)
         if k in ("color", "size") and k not in attrs:
             attrs[k] = entry
         else:
             others.append(entry)
     existing = []
     for v in p["variants"]:
-        combo = {}
+        combo, by_id = {}, {}
         for a in v["attributes"]:
             k = _kind(a["attribute"])
-            if k in ("color", "size") and a["values"]:
-                combo[k] = a["values"][0]["name"]
-        existing.append({"id": v["id"], "sku": v.get("sku") or "", **combo})
+            if a["values"]:
+                by_id[a["attribute"]["id"]] = a["values"][0]["name"]
+                if k in ("color", "size"):
+                    combo[k] = a["values"][0]["name"]
+        existing.append({"id": v["id"], "sku": v.get("sku") or "", "values": by_id, **combo})
+    # values already used per attribute (so the dialog can offer them even when the attribute has no predefined choices)
+    for e in all_attrs:
+        used = sorted({ex["values"].get(e["id"]) for ex in existing if ex["values"].get(e["id"])})
+        e["used"] = used
     used_colors = sorted({e["color"] for e in existing if e.get("color")}); used_sizes = sorted({e["size"] for e in existing if e.get("size")})
     first = p["variants"][0] if p["variants"] else None
     price = (first["channelListings"][0]["price"]["amount"] if first and first["channelListings"] and first["channelListings"][0].get("price") else None)
@@ -208,7 +216,7 @@ async def variant_setup(product_id: str, shop: Installation = Depends(current_sh
         for a in first["attributes"]:
             if a["values"]:
                 other_values[a["attribute"]["id"]] = a["values"][0]["name"]
-    return {"attributes": attrs, "others": others, "other_values": other_values, "existing": existing, "used_colors": used_colors, "used_sizes": used_sizes,
+    return {"product_type": p["productType"].get("name"), "all_attributes": all_attrs, "attributes": attrs, "others": others, "other_values": other_values, "existing": existing, "used_colors": used_colors, "used_sizes": used_sizes,
             "default_price": price, "channels": [c["channel"] for c in p["channelListings"]], "warehouses": meta["warehouses"]}
 
 
@@ -220,21 +228,33 @@ async def variants_create(body: AddVariantsBody, shop: Installation = Depends(cu
         raise HTTPException(status_code=400, detail="this product type has no colour variant attribute")
     if body.sizes and "size" not in attrs:
         raise HTTPException(status_code=400, detail="this product type has no size variant attribute")
-    if attrs.get("size", {}).get("required") and not body.sizes:
-        raise HTTPException(status_code=400, detail="Size is a required attribute on this product type — tick at least one size")
-    if attrs.get("color", {}).get("required") and not body.colors:
-        raise HTTPException(status_code=400, detail="Colour is a required attribute on this product type — tick at least one colour")
-    extra_inputs = []
-    for o in setup["others"]:
-        val = setup["other_values"].get(o["id"]) or (o["values"][0] if o["values"] else None)
-        if o["required"] and not val:
-            raise HTTPException(status_code=400, detail=f"attribute '{o['name']}' is required but has no value to copy — add a variant with it in the dashboard first")
-        if val and o["inputType"] in ("DROPDOWN", "SWATCH"):
-            extra_inputs.append({"id": o["id"], "dropdown": {"value": val}})
-        elif val and o["inputType"] == "PLAIN_TEXT":
-            extra_inputs.append({"id": o["id"], "plainText": val})
-    colors = body.colors or [""]; sizes = body.sizes or [""]
-    have = {(e.get("color", "") or "", e.get("size", "") or "") for e in setup["existing"]}
+    # chosen values per attribute: generic map first, colours/sizes shortcuts second
+    chosen: Dict[str, List[str]] = {k: [x for x in v if x] for k, v in (body.values or {}).items()}
+    if body.colors and "color" in attrs:
+        chosen.setdefault(attrs["color"]["id"], body.colors)
+    if body.sizes and "size" in attrs:
+        chosen.setdefault(attrs["size"]["id"], body.sizes)
+    axes = []            # (attribute, [values]) — every attribute with chosen values becomes an axis of the combination grid
+    fixed = []           # attribute inputs copied for attributes without a choice
+    for a in setup["all_attributes"]:
+        vals = chosen.get(a["id"]) or []
+        if vals:
+            axes.append((a, vals)); continue
+        val = setup["other_values"].get(a["id"]) or (a["values"][0] if a["values"] else None)
+        if a["required"]:
+            if not val:
+                raise HTTPException(status_code=400, detail=f"'{a['name']}' is required on this product type — choose at least one value")
+            if a["kind"] in ("color", "size"):
+                raise HTTPException(status_code=400, detail=f"'{a['name']}' is required on this product type — tick at least one value")
+        if val and a["inputType"] in ("DROPDOWN", "SWATCH"):
+            fixed.append({"id": a["id"], "dropdown": {"value": val}})
+        elif val and a["inputType"] == "PLAIN_TEXT":
+            fixed.append({"id": a["id"], "plainText": val})
+    if not axes:
+        raise HTTPException(status_code=400, detail="choose values for at least one variant attribute")
+    import itertools
+    have = {tuple((a["id"], e["values"].get(a["id"], "")) for a, _ in axes) for e in setup["existing"]}
+    extra_inputs = fixed
     st = db.get_settings(shop.domain); defaults = st.get("builder_defaults", {})
     pattern = defaults.get("sku_pattern") or "{brand}-{style}-{color:3}-{size}"; brand = body.brand or defaults.get("brand") or "SKU"
     async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
@@ -242,14 +262,18 @@ async def variants_create(body: AddVariantsBody, shop: Installation = Depends(cu
         style = body.style or _style_code(p["name"])
         price = body.price if body.price is not None else setup["default_price"]
         variants, skus = [], {e["sku"] for e in setup["existing"] if e["sku"]}
-        for color in colors:
-            for size in sizes:
-                if (color, size) in have:
+        for combo in itertools.product(*[[(a["id"], v) for v in vals] for a, vals in axes]):
+                if tuple(combo) in have:
                     continue
                 attr_inputs = list(extra_inputs)
-                if color: attr_inputs.append({"id": attrs["color"]["id"], "dropdown": {"value": color}})
-                if size: attr_inputs.append({"id": attrs["size"]["id"], "dropdown": {"value": size}})
-                sku = make_sku(pattern, {"brand": brand, "style": style, "color": color, "size": size}); base, i = sku, 2
+                ctx = {"brand": brand, "style": style, "color": "", "size": ""}
+                for (aid, val), (a, _) in zip(combo, axes):
+                    attr_inputs.append({"id": aid, "plainText": val} if a["inputType"] == "PLAIN_TEXT" else {"id": aid, "dropdown": {"value": val}})
+                    if a["kind"] in ("color", "size"):
+                        ctx[a["kind"]] = val
+                    else:
+                        ctx[a["name"].lower().replace(" ", "_")] = val
+                sku = make_sku(pattern, ctx); base, i = sku, 2
                 while sku in skus:
                     sku = f"{base}-{i}"; i += 1
                 skus.add(sku)

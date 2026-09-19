@@ -45,7 +45,7 @@ class FakeSaleor:
                     "media": [{"id": "M1", "alt": "", "type": "IMAGE", "url": self.base + "/media/front.png", "thumb": self.base + "/media/front.png"}]}}}
             if "query VariantSetup" in q:
                 return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt",
-                    "productType": {"id": "PT1", "assignedVariantAttributes": [
+                    "productType": {"id": "PT1", "name": "Shirt", "assignedVariantAttributes": [
                         {"attribute": {"id": "A_SIZE", "name": "Size", "slug": "size", "inputType": "DROPDOWN", "valueRequired": True, "choices": {"edges": [{"node": {"name": "S"}}, {"node": {"name": "M"}}]}}},
                         {"attribute": {"id": "A_COL", "name": "Colour", "slug": "color", "inputType": "DROPDOWN", "valueRequired": False, "choices": {"edges": []}}},
                         {"attribute": {"id": "A_FIT", "name": "Fit", "slug": "fit", "inputType": "DROPDOWN", "valueRequired": True, "choices": {"edges": [{"node": {"name": "Regular"}}]}}}]},
@@ -265,7 +265,9 @@ def test_add_variants_colour_x_size(saleor):
     with TestClient(app) as c:
         c.put("/api/builder/settings", headers=H(saleor), json={"defaults": {"sku_pattern": "{brand}-{style}-{color:3}-{size}", "brand": "ROS"}})
         st = c.get("/api/studio/variant-setup/P1", headers=H(saleor)).json()
+        assert st["product_type"] == "Shirt" and [a["name"] for a in st["all_attributes"]] == ["Size", "Colour", "Fit"]
         assert st["attributes"]["color"]["id"] == "A_COL" and st["attributes"]["size"]["values"] == ["S", "M"] and st["used_colors"] == ["Burgundy"]
+        assert st["existing"][0]["values"] == {"A_SIZE": "S", "A_COL": "Burgundy", "A_FIT": "Slim"}
         r = c.post("/api/studio/variants/create", headers=H(saleor), json={"product_id": "P1", "colors": ["Burgundy", "Navy"], "sizes": ["S", "M"], "price": 49.0, "stock": 3}).json()
         assert r["count"] == 3                                   # Burgundy/S exists → skipped
         skus = sorted(v["sku"] for v in saleor.bulk_variants)
@@ -275,3 +277,6 @@ def test_add_variants_colour_x_size(saleor):
         assert {"id": "A_FIT", "dropdown": {"value": "Slim"}} in v["attributes"]          # required extra attribute copied from an existing variant
         bad = c.post("/api/studio/variants/create", headers=H(saleor), json={"product_id": "P1", "colors": ["Green"], "sizes": []})
         assert bad.status_code == 400 and "Size" in bad.text
+        # generic form: any attribute can be an axis (Fit x Size), colour copied from the existing variant
+        r = c.post("/api/studio/variants/create", headers=H(saleor), json={"product_id": "P1", "values": {"A_FIT": ["Regular"], "A_SIZE": ["S", "M"]}}).json()
+        assert r["count"] == 2 and all({"id": "A_COL", "dropdown": {"value": "Burgundy"}} in v["attributes"] for v in saleor.bulk_variants)
