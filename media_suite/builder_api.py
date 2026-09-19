@@ -269,9 +269,12 @@ async def create(body: CreateBody, shop: Installation = Depends(current_shop)):
 
             if body.translation_de and body.translation_de.get("name"):
                 t = body.translation_de
-                await api.translate_product(product["id"], "DE", t["name"], editorjs(t.get("description", [])),
-                                            t.get("seo_title", "")[:70], t.get("seo_description", "")[:300])
-                report["steps"].append("German translation saved")
+                try:
+                    await api.translate_product(product["id"], "DE", t["name"], editorjs(t.get("description", [])),
+                                                t.get("seo_title", "")[:70], t.get("seo_description", "")[:300])
+                    report["steps"].append("German translation saved")
+                except SaleorAPIError as exc:
+                    report["steps"].append("German translation NOT saved: " + ("reinstall the app to grant MANAGE_TRANSLATIONS" if "MANAGE_TRANSLATIONS" in str(exc.errors) else str(exc.errors)[:160]))
     except SaleorAPIError as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors, "done": report["steps"]})
 
@@ -375,9 +378,12 @@ async def apply_copy(body: ApplyCopyBody, shop: Installation = Depends(current_s
             if inp:
                 await api.update_product(body.product_id, inp); steps.append("English texts updated")
             if body.name_de or body.intro_de or body.details_de:
-                await api.translate_product(body.product_id, "DE", body.name_de or "", editorjs(body.intro_de or [], body.details_de or [], "Produktdetails" if body.details_title == "Product Details" else body.details_title),
-                                            (body.seo_title_de or "")[:70], (body.seo_description_de or "")[:300])
-                steps.append("German translation updated")
+                try:
+                    await api.translate_product(body.product_id, "DE", body.name_de or "", editorjs(body.intro_de or [], body.details_de or [], "Produktdetails" if body.details_title == "Product Details" else body.details_title),
+                                                (body.seo_title_de or "")[:70], (body.seo_description_de or "")[:300])
+                    steps.append("German translation updated")
+                except SaleorAPIError as exc:
+                    steps.append("German translation NOT saved: " + ("the app lacks MANAGE_TRANSLATIONS — reinstall it to grant the permission" if "MANAGE_TRANSLATIONS" in str(exc.errors) else str(exc.errors)[:160]))
             for vid, name in body.variant_names.items():
                 if name and name.strip():
                     await api.update_variant(vid, {"name": name.strip()[:255]})

@@ -658,8 +658,11 @@ async def update_product_details(product_id: str, body: ProductEdit, shop: Insta
             steps.append("product updated")
             if body.translation_de and body.translation_de.get("name"):
                 t = body.translation_de
-                await api.translate_product(product_id, "DE", t["name"], editorjs(t.get("description", [])), t.get("seo_title", "")[:70], t.get("seo_description", "")[:300])
-                steps.append("German translation saved")
+                try:
+                    await api.translate_product(product_id, "DE", t["name"], editorjs(t.get("description", [])), t.get("seo_title", "")[:70], t.get("seo_description", "")[:300])
+                    steps.append("German translation saved")
+                except SaleorAPIError as exc:
+                    steps.append("German translation NOT saved: " + ("reinstall the app to grant MANAGE_TRANSLATIONS" if "MANAGE_TRANSLATIONS" in str(exc.errors) else str(exc.errors)[:160]))
             for v in body.variants:
                 if v.sku is not None:
                     await api.update_variant(v.id, {"sku": v.sku.strip() or None})

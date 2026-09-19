@@ -11,7 +11,7 @@ client = TestClient(app)
 def test_manifest():
     data = client.get("/configuration/manifest").json()
     assert data["id"] == "saleor.media-suite"
-    assert data["permissions"] == ["MANAGE_PRODUCTS"]
+    assert data["permissions"] == ["MANAGE_PRODUCTS", "MANAGE_TRANSLATIONS"]
     assert data["appUrl"] == "http://testserver/"
     assert data["tokenTargetUrl"] == "http://testserver/configuration/install"
     assert [e["label"] for e in data["extensions"]] == ["Image Optimizer", "AI Studio", "Product Builder"]
