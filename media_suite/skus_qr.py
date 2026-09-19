@@ -140,3 +140,103 @@ async def put_storefront_url(body: StorefrontUrlBody, shop: Installation = Depen
     st = db.get_settings(shop.domain); st.setdefault("storefront", {})["product_url"] = body.product_url.strip()
     db.save_settings(shop.domain, st)
     return {"product_url": st["storefront"]["product_url"]}
+
+
+# -- add variants (colour × size) to an existing product ------------------------------
+VARIANT_SETUP = """
+query VariantSetup($id: ID!) {
+  product(id: $id) {
+    id name
+    productType { id assignedVariantAttributes { attribute { id name slug inputType choices(first: 100) { edges { node { name } } } } } }
+    channelListings { channel { id name currencyCode } }
+    variants { id sku attributes { attribute { id slug name } values { name } } channelListings { channel { id } price { amount } } stocks { warehouse { id } quantity } }
+  }
+}
+"""
+
+
+class AddVariantsBody(BaseModel):
+    product_id: str
+    colors: List[str] = []
+    sizes: List[str] = []
+    price: Optional[float] = None       # default: price of the first existing variant per channel
+    stock: int = 0
+    brand: Optional[str] = None
+    style: Optional[str] = None
+
+
+def _kind(attr: dict) -> str:
+    t = ((attr.get("slug") or "") + " " + (attr.get("name") or "")).lower()
+    if "colo" in t or "farbe" in t:
+        return "color"
+    if "size" in t or "gr" in t and "ss" in t:
+        return "size"
+    return "other"
+
+
+@router.get("/variant-setup/{product_id}")
+async def variant_setup(product_id: str, shop: Installation = Depends(current_shop)):
+    """What the Add-variants dialog needs: colour/size attributes with known values, existing combos, warehouses."""
+    async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+        p = ((await api.execute(VARIANT_SETUP, {"id": product_id})) or {}).get("product")
+        meta = await api.builder_meta()
+    if not p:
+        raise HTTPException(status_code=404, detail="product not found")
+    attrs = {}
+    for a in (p["productType"].get("assignedVariantAttributes") or []):
+        at = a["attribute"]; k = _kind(at)
+        if k in ("color", "size") and k not in attrs:
+            attrs[k] = {"id": at["id"], "name": at["name"], "values": [c["node"]["name"] for c in (at.get("choices") or {}).get("edges", [])]}
+    existing = []
+    for v in p["variants"]:
+        combo = {}
+        for a in v["attributes"]:
+            k = _kind(a["attribute"])
+            if k in ("color", "size") and a["values"]:
+                combo[k] = a["values"][0]["name"]
+        existing.append({"id": v["id"], "sku": v.get("sku") or "", **combo})
+    used_colors = sorted({e["color"] for e in existing if e.get("color")}); used_sizes = sorted({e["size"] for e in existing if e.get("size")})
+    first = p["variants"][0] if p["variants"] else None
+    price = (first["channelListings"][0]["price"]["amount"] if first and first["channelListings"] and first["channelListings"][0].get("price") else None)
+    return {"attributes": attrs, "existing": existing, "used_colors": used_colors, "used_sizes": used_sizes, "default_price": price,
+            "channels": [c["channel"] for c in p["channelListings"]], "warehouses": meta["warehouses"]}
+
+
+@router.post("/variants/create")
+async def variants_create(body: AddVariantsBody, shop: Installation = Depends(current_shop)):
+    setup = await variant_setup(body.product_id, shop)
+    attrs = setup["attributes"]
+    if body.colors and "color" not in attrs:
+        raise HTTPException(status_code=400, detail="this product type has no colour variant attribute")
+    if body.sizes and "size" not in attrs:
+        raise HTTPException(status_code=400, detail="this product type has no size variant attribute")
+    colors = body.colors or [""]; sizes = body.sizes or [""]
+    have = {(e.get("color", "") or "", e.get("size", "") or "") for e in setup["existing"]}
+    st = db.get_settings(shop.domain); defaults = st.get("builder_defaults", {})
+    pattern = defaults.get("sku_pattern") or "{brand}-{style}-{color:3}-{size}"; brand = body.brand or defaults.get("brand") or "SKU"
+    async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+        p = ((await api.execute(VARIANT_SETUP, {"id": body.product_id})) or {}).get("product")
+        style = body.style or _style_code(p["name"])
+        price = body.price if body.price is not None else setup["default_price"]
+        variants, skus = [], {e["sku"] for e in setup["existing"] if e["sku"]}
+        for color in colors:
+            for size in sizes:
+                if (color, size) in have:
+                    continue
+                attr_inputs = []
+                if color: attr_inputs.append({"id": attrs["color"]["id"], "dropdown": {"value": color}})
+                if size: attr_inputs.append({"id": attrs["size"]["id"], "dropdown": {"value": size}})
+                sku = make_sku(pattern, {"brand": brand, "style": style, "color": color, "size": size}); base, i = sku, 2
+                while sku in skus:
+                    sku = f"{base}-{i}"; i += 1
+                skus.add(sku)
+                variants.append({"sku": sku, "attributes": attr_inputs, "trackInventory": True,
+                                 "channelListings": [{"channelId": c["id"], "price": price} for c in setup["channels"] if price is not None],
+                                 "stocks": [{"warehouse": w["id"], "quantity": int(body.stock)} for w in setup["warehouses"][:1]]})
+        if not variants:
+            return {"created": [], "skipped": "all combinations already exist"}
+        try:
+            created = await api.bulk_create_variants(body.product_id, variants)
+        except SaleorAPIError as exc:
+            raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors})
+    return {"created": [{"id": c["id"], "sku": c.get("sku")} for c in created], "count": len(created)}

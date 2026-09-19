@@ -372,7 +372,27 @@
 
   // ---- edit details / clone (unchanged behaviour) ----------------------------------------------
   const paras = (t) => t.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
-  $("#product-menu").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v === "edit") $("#edit-product").click(); if (v === "clone") $("#clone-product").click(); });
+  $("#product-menu").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v === "edit") $("#edit-product").click(); if (v === "clone") $("#clone-product").click(); if (v === "variants") openAddVariants(); });
+  async function openAddVariants() {
+    if (!S.product) return; const dlg = $("#variants-dialog"); $("#av-msg").textContent = "Loading…"; $("#av-count").textContent = ""; dlg.showModal();
+    try {
+      const st = await api(`/api/studio/variant-setup/${encodeURIComponent(S.product.id)}`);
+      const sel = { colors: new Set(), sizes: new Set() };
+      const render = (key, boxId, known, used) => {
+        const box = $(boxId); box.replaceChildren();
+        const all = [...new Set([...known, ...used, ...sel[key]])];
+        for (const v of all) box.append(chip(v + (used.includes(v) ? " ✓" : ""), sel[key].has(v), () => { sel[key].has(v) ? sel[key].delete(v) : sel[key].add(v); render(key, boxId, known, used); count(); }));
+        box.append(el("input", { placeholder: "add ↵", style: "width:100px", onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) { sel[key].add(e.target.value.trim()); render(key, boxId, known, used); count(); } } }));
+        if (!st.attributes[key === "colors" ? "color" : "size"]) box.append(el("span", { class: "muted" }, `no ${key.slice(0, -1)} attribute on this product type`));
+      };
+      const count = () => { const c = sel.colors.size || 1, z = sel.sizes.size || 1; const have = new Set(st.existing.map((e) => `${e.color || ""}|${e.size || ""}`)); let n = 0; for (const col of (sel.colors.size ? sel.colors : [""])) for (const sz of (sel.sizes.size ? sel.sizes : [""])) if (!have.has(`${col}|${sz}`)) n++; $("#av-count").textContent = `${n} new variant(s) will be created (${c} colour × ${z} size, existing ones skipped)`; };
+      render("colors", "#av-colors", st.attributes.color?.values || [], st.used_colors); render("sizes", "#av-sizes", st.attributes.size?.values || [], st.used_sizes);
+      $("#av-price").value = st.default_price ?? ""; $("#av-msg").textContent = st.existing.length ? `${st.existing.length} variant(s) exist already.` : "No variants yet."; count();
+      $("#av-go").onclick = async () => { const btn = $("#av-go"); btn.disabled = true; $("#av-msg").textContent = "Creating…";
+        try { const r = await api("/api/studio/variants/create", { method: "POST", body: JSON.stringify({ product_id: S.product.id, colors: [...sel.colors], sizes: [...sel.sizes], price: $("#av-price").value === "" ? null : Number($("#av-price").value), stock: Number($("#av-stock").value || 0) }) });
+          dlg.close(); notify("success", r.count ? `${r.count} variant(s) created` : r.skipped); S.variants = null; } catch (e) { $("#av-msg").textContent = e.message; } finally { btn.disabled = false; } };
+    } catch (e) { $("#av-msg").textContent = e.message; }
+  }
   const hiddenBtn = (id) => { let b = document.getElementById(id); if (!b) { b = el("button", { id, hidden: true }); document.body.append(b); } return b; };
   hiddenBtn("edit-product"); hiddenBtn("clone-product");
   $("#edit-product").addEventListener("click", async () => {

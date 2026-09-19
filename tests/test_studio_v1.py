@@ -43,6 +43,21 @@ class FakeSaleor:
                 return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt", "category": {"name": "Shirts"}, "productType": {"name": "Shirt"},
                     "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}, {"attribute": {"name": "Material", "slug": "material"}, "values": [{"name": "Cotton"}]}],
                     "media": [{"id": "M1", "alt": "", "type": "IMAGE", "url": self.base + "/media/front.png", "thumb": self.base + "/media/front.png"}]}}}
+            if "query VariantSetup" in q:
+                return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt",
+                    "productType": {"id": "PT1", "assignedVariantAttributes": [
+                        {"attribute": {"id": "A_SIZE", "name": "Size", "slug": "size", "inputType": "DROPDOWN", "choices": {"edges": [{"node": {"name": "S"}}, {"node": {"name": "M"}}]}}},
+                        {"attribute": {"id": "A_COL", "name": "Colour", "slug": "color", "inputType": "DROPDOWN", "choices": {"edges": []}}}]},
+                    "channelListings": [{"channel": {"id": "CH1", "name": "Germany", "currencyCode": "EUR"}}],
+                    "variants": [{"id": "V1", "sku": "R-BUR-S", "attributes": [{"attribute": {"id": "A_SIZE", "slug": "size", "name": "Size"}, "values": [{"name": "S"}]}, {"attribute": {"id": "A_COL", "slug": "color", "name": "Colour"}, "values": [{"name": "Burgundy"}]}],
+                                  "channelListings": [{"channel": {"id": "CH1"}, "price": {"amount": 49.0}}], "stocks": [{"warehouse": {"id": "WH1"}, "quantity": 5}]}]}}}
+            if "query BuilderMeta" in q:
+                return {"data": {"channels": [{"id": "CH1", "name": "Germany", "slug": "germany", "currencyCode": "EUR"}], "warehouses": {"edges": [{"node": {"id": "WH1", "name": "Main"}}]}, "productTypes": {"edges": []}}}
+            if "query BuilderCategories" in q:
+                return {"data": {"categories": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "edges": []}}}
+            if "productVariantBulkCreate" in q:
+                self.bulk_variants = v["variants"]
+                return {"data": {"productVariantBulkCreate": {"productVariants": [{"id": f"NV{i}", "sku": x["sku"], "name": ""} for i, x in enumerate(v["variants"])], "errors": []}}}
             if "query SkuVariants" in q:
                 return {"data": {"product": {"id": v["id"], "name": "Rugby Shirt", "slug": "rugby-shirt", "category": {"name": "Shirts"},
                     "attributes": [{"attribute": {"name": "Colour", "slug": "color"}, "values": [{"name": "Burgundy"}]}],
@@ -243,3 +258,16 @@ def test_preferred_provider_setting(saleor, monkeypatch):
         assert r["provider"] == "local"          # preference wins even for a pose that would otherwise route to a prompt engine
         wait_done(c, saleor)
         c.put("/api/studio/settings", headers=H(saleor), json={"preferred_providers": {"tryon": ""}})
+
+
+def test_add_variants_colour_x_size(saleor):
+    with TestClient(app) as c:
+        c.put("/api/builder/settings", headers=H(saleor), json={"defaults": {"sku_pattern": "{brand}-{style}-{color:3}-{size}", "brand": "ROS"}})
+        st = c.get("/api/studio/variant-setup/P1", headers=H(saleor)).json()
+        assert st["attributes"]["color"]["id"] == "A_COL" and st["attributes"]["size"]["values"] == ["S", "M"] and st["used_colors"] == ["Burgundy"]
+        r = c.post("/api/studio/variants/create", headers=H(saleor), json={"product_id": "P1", "colors": ["Burgundy", "Navy"], "sizes": ["S", "M"], "price": 49.0, "stock": 3}).json()
+        assert r["count"] == 3                                   # Burgundy/S exists → skipped
+        skus = sorted(v["sku"] for v in saleor.bulk_variants)
+        assert skus == ["ROS-RUGB-BUR-M", "ROS-RUGB-NAV-M", "ROS-RUGB-NAV-S"]
+        v = saleor.bulk_variants[0]
+        assert v["channelListings"] == [{"channelId": "CH1", "price": 49.0}] and v["stocks"] == [{"warehouse": "WH1", "quantity": 3}]
