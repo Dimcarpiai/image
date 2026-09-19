@@ -314,3 +314,9 @@ kbd { border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px
 .changed { border-color: var(--success-text) !important; box-shadow: inset 0 0 0 1px var(--success-text); }
 #cp-instructions { border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius); padding: 8px 10px; width: 100%; box-sizing: border-box; }
 @media (max-width: 900px) { .cp-row { grid-template-columns: 1fr; } }
+
+/* ---- inline model library ---- */
+.ref-tile.pick { cursor: pointer; opacity: .8; }
+.ref-tile.pick.on { opacity: 1; border: 2px solid var(--primary); }
+.ref-tile.pick .check { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; border-radius: 50%; background: var(--primary); color: var(--primary-text); display: grid; place-items: center; font-size: 11px; }
+.ref-tile.pick .src { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 10px; text-align: center; }

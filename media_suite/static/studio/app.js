@@ -136,12 +136,33 @@
       let items = [];
       try { items = slotItems(slot.key); } catch (err) { console.error("slot", slot.key, err); }
       const tiles = el("div", { class: "ref-tiles" });
-      for (const it of items) tiles.append(el("div", { class: "ref-tile" }, el("img", { src: it.thumb, alt: "" }), el("button", { class: "btn btn-sm del", onclick: () => removeRef(slot.key, it.id) }, "✕")));
-      if (slot.key === "product" && !items.length && !S.product.media.length) {
+      if (slot.key === "model") {
+        // the whole model library, tickable in place (several = one job per photo)
+        const chosen = new Set(S.refs.model_asset_ids.length ? S.refs.model_asset_ids : [S.refs.model_asset_id || S.lockedModel].filter(Boolean));
+        for (const m of S.models) {
+          const on = chosen.has(m.id);
+          tiles.append(el("div", { class: `ref-tile pick${on ? " on" : ""}`, title: m.label || "model", onclick: () => { if (on) { S.refs.model_asset_ids = [...chosen].filter((x) => x !== m.id); if (S.refs.model_asset_id === m.id) S.refs.model_asset_id = null; } else { S.refs.model_asset_ids = [...chosen, m.id]; S.refs.model_asset_id = m.id; } renderRefs(); } },
+            el("img", { src: m.url, alt: "" }), on ? el("span", { class: "check" }, "✓") : null, m.id === S.lockedModel ? el("span", { class: "src" }, "locked") : null));
+        }
+        if (!S.models.length) tiles.append(el("span", { class: "muted", style: "font-size:12px" }, "no model photos yet — add one with +"));
+      } else if (slot.key === "product" && S.product) {
+        // the product's own images, tickable; plus anything added from elsewhere
+        const chosen = new Set(S.refs.product_urls);
+        for (const m of S.product.media) {
+          const on = chosen.has(m.url);
+          tiles.append(el("div", { class: `ref-tile pick${on ? " on" : ""}`, title: m.alt || "product image", onclick: () => { on ? S.refs.product_urls = S.refs.product_urls.filter((u) => u !== m.url) : S.refs.product_urls.push(m.url); renderRefs(); } },
+            el("img", { src: m.thumb, alt: "" }), on ? el("span", { class: "check" }, "✓") : null));
+        }
+        for (const u of S.refs.product_urls.filter((u) => !S.product.media.some((m) => m.url === u))) tiles.append(el("div", { class: "ref-tile pick on" }, el("img", { src: S.refThumbs[u] || u, alt: "" }), el("span", { class: "check" }, "✓"), el("button", { class: "btn btn-sm del", onclick: (e) => { e.stopPropagation(); removeRef("product", u); } }, "✕")));
+        tiles.append(el("span", { class: "muted", style: "font-size:12px" }, `${S.refs.product_urls.length} selected`));
+      } else {
+        for (const it of items) tiles.append(el("div", { class: "ref-tile" }, el("img", { src: it.thumb, alt: "" }), el("button", { class: "btn btn-sm del", onclick: () => removeRef(slot.key, it.id) }, "✕")));
+      }
+      if (slot.key === "product" && !S.refs.product_urls.length && !S.product.media.length) {
         tiles.append(el("label", { class: "btn btn-sm btn-primary" }, "Upload a product photo", el("input", { type: "file", accept: "image/*", hidden: true, onchange: async (e) => { const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append("file", f); try { const a = await api("/api/builder/upload", { method: "POST", body: fd }); setRef("product", { id: a.id, url: location.origin + a.url, thumb: a.url }); } catch (err) { notify("error", err.message); } } })));
         tiles.append(el("span", { class: "muted", style: "font-size:12px" }, "this product has no images in Saleor yet"));
       } else tiles.append(el("button", { class: "ref-add", title: "Choose or upload", onclick: () => pickFor(slot.key) }, "+"));
-      if (slot.key === "model" && S.lockedModel) tiles.append(el("span", { class: "badge badge-ok", title: "Model lock is on" }, "locked model"));
+      if (slot.key === "model") { const n = (S.refs.model_asset_ids.length || (S.refs.model_asset_id || S.lockedModel ? 1 : 0)); tiles.append(el("span", { class: "muted", style: "font-size:12px" }, n ? `${n} selected → ${n} job${n === 1 ? "" : "s"}` : "tick one or more")); }
       (PRIMARY[S.task].includes(slot.key) ? main : more).append(el("div", { class: "ref-slot" }, el("div", { class: "ref-head" }, el("strong", {}, slot.label), el("span", { class: "muted" }, slot.help)), tiles));
     }
     $("#generate").disabled = !canGenerate();
