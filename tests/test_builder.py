@@ -71,6 +71,12 @@ class FakeSaleor:
                 self.assigned = v; return {"data": {"variantMediaAssign": {"errors": []}}}
             if "productTranslate" in q:
                 self.translation = v; return {"data": {"productTranslate": {"errors": []}}}
+            if "query CopySource" in q:
+                e = getattr(self, "edit_source", None) or {}
+                return {"data": {"product": {"id": "P1", "name": e.get("name", "Polo Navy"), "slug": "polo-navy", "description": e.get("description"), "seoTitle": "Polo", "seoDescription": "d",
+                    "category": {"name": "Shirts"}, "productType": {"name": "Shirt"}, "attributes": [{"attribute": {"name": "Material"}, "values": [{"name": "Cotton"}]}],
+                    "translation": {"name": "Poloshirt Navy", "description": None, "seoTitle": "", "seoDescription": ""},
+                    "variants": [{"id": "V0", "name": "", "sku": "ROS-POLO-NAV-S", "attributes": [{"attribute": {"name": "Size"}, "values": [{"name": "S"}]}]}]}}}
             if "query EditSource" in q:
                 return {"data": {"product": getattr(self, "edit_source", None)}}
             if "productUpdate" in q:
@@ -315,3 +321,21 @@ def test_settings_budget_estimate_and_bulk(saleor, monkeypatch):
         queue = c.get("/api/studio/review", headers=H(saleor)).json()
         r = c.post("/api/studio/review", headers=H(saleor), json={"asset_id": queue[0]["id"], "decision": "approve_main"}).json()
         assert r["status"] == "approved" and r["main"] is True
+
+
+def test_copywriter_improve_and_apply(saleor, monkeypatch):
+    async def fake_improve(provider, model, current, tone, languages, instructions, api_key):
+        assert current["name"] == "Polo Navy" and "cotton" in instructions and tone == "short and punchy"
+        return {"name_en": "Navy Cotton Polo", "description_en": ["Better text."], "name_de": "Marineblaues Polo", "description_de": ["Besserer Text."],
+                "seo_title_en": "Navy Polo", "seo_description_en": "d", "variant_names": {"V0": "Navy / S"}, "notes": "Shortened."}
+    monkeypatch.setattr("media_suite.builder_api.improve_copy", fake_improve)
+    saleor.edit_source = saleor.edit_source
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=H(saleor), json={"provider": "openai", "api_key": "sk"})
+        src = c.get("/api/builder/copy/P1", headers=H(saleor)).json()
+        assert src["name"] == "Polo Navy" and src["variants"][0]["id"] == "V0"
+        r = c.post("/api/builder/improve", headers=H(saleor), json={"product_id": "P1", "tone": "short and punchy", "instructions": "mention cotton"}).json()
+        assert r["suggestion"]["name_en"] == "Navy Cotton Polo" and r["current"]["name"] == "Polo Navy"
+        a = c.post("/api/builder/apply-copy", headers=H(saleor), json={"product_id": "P1", "name_en": "Navy Cotton Polo", "description_en": ["Better text."], "name_de": "Marineblaues Polo", "description_de": ["Besserer Text."], "variant_names": {"V0": "Navy / S"}}).json()
+        assert a["steps"] == ["English texts updated", "German translation updated", "1 variant name(s) updated"]
+        assert saleor.updated_product["input"]["name"] == "Navy Cotton Polo" and saleor.updated_variant["input"] == {"name": "Navy / S"}

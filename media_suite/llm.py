@@ -141,3 +141,22 @@ async def qc_check(provider: str, model: Optional[str], reference: Optional[Imag
         return {"status": status, "issues": [str(i)[:120] for i in (out.get("issues") or [])][:6]}
     except Exception:  # noqa: BLE001
         return {"status": "unchecked", "issues": [text[:120]]}
+
+
+COPY_SYSTEM = (
+    "You are a senior e-commerce copywriter for a fashion store. You receive the current product data as JSON and must return improved copy as JSON. "
+    "Rules: never invent facts (materials, care, origin, measurements) that are not in the input; keep brand and product names; write for the customer, "
+    "concrete and specific, no fluff, no exclamation marks; respect the requested tone and languages. Return ONLY a JSON object with keys: "
+    "name_en, name_de, description_en (array of 2-3 short paragraphs), description_de (array), bullets_en (3-5 short strings), bullets_de, "
+    "seo_title_en (<=60 chars), seo_description_en (<=155 chars), seo_title_de, seo_description_de, "
+    "variant_names (object: variant id -> short customer-facing name such as \"Navy / M\"), notes (one sentence on what you changed)."
+)
+
+
+async def improve_copy(provider: str, model: Optional[str], current: dict, tone: str, languages: List[str], instructions: str, api_key: str) -> dict:
+    if provider not in BACKENDS:
+        raise ProviderError("copywriting needs an OpenAI, Gemini or Local GPU key")
+    user = (f"Tone: {tone or 'clear and premium'}. Languages: {', '.join(languages) or 'en, de'}. "
+            f"Extra instructions: {instructions or 'none'}.\nCurrent product data:\n{json.dumps(current, ensure_ascii=False)[:12000]}\nReturn the JSON now.")
+    text = await BACKENDS[provider](model or DEFAULT_MODELS[provider], COPY_SYSTEM, user, [], api_key, True)
+    return _json_from_text(text)

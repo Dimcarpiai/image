@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from .db import Installation, db
 from .jobs import asset_dir, normalize_image, provider_key
-from .llm import DEFAULT_MODELS, draft_product
+from .llm import DEFAULT_MODELS, draft_product, improve_copy
 from .providers.base import ProviderError
 from .saleor_api import SaleorAPI, SaleorAPIError, editorjs
 from .storefront import notify_storefront
@@ -271,3 +271,104 @@ async def create(body: CreateBody, shop: Installation = Depends(current_shop)):
 
     await notify_storefront(shop.domain, product["id"], product.get("slug", ""), "product-created")
     return {"product": product, "variants": created, **report}
+
+
+# -- copywriting for existing products (no images needed) ----------------------------
+COPY_SOURCE = """
+query CopySource($id: ID!) {
+  product(id: $id) {
+    id name slug description seoTitle seoDescription
+    category { name } productType { name }
+    attributes { attribute { name } values { name plainText } }
+    translation(languageCode: DE) { name description seoTitle seoDescription }
+    variants { id name sku attributes { attribute { name } values { name } } }
+  }
+}
+"""
+
+
+def _paras_from_editor(description_json: Optional[str]) -> List[str]:
+    import json as _json, re as _re
+    try:
+        blocks = _json.loads(description_json or "{}").get("blocks", [])
+    except _json.JSONDecodeError:
+        return []
+    return [_re.sub(r"<[^>]+>", "", b.get("data", {}).get("text", "")) for b in blocks if b.get("type") == "paragraph"]
+
+
+@router.get("/copy/{product_id}")
+async def copy_source(product_id: str, shop: Installation = Depends(current_shop)):
+    async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+        p = ((await api.execute(COPY_SOURCE, {"id": product_id})) or {}).get("product")
+    if not p:
+        raise HTTPException(status_code=404, detail="product not found")
+    tr = p.get("translation") or {}
+    return {
+        "id": p["id"], "name": p["name"], "slug": p["slug"], "category": (p.get("category") or {}).get("name"), "product_type": (p.get("productType") or {}).get("name"),
+        "attributes": {a["attribute"]["name"]: ", ".join(v.get("name") or v.get("plainText") or "" for v in a["values"]) for a in p["attributes"] if a["values"]},
+        "description_en": _paras_from_editor(p.get("description")), "seo_title_en": p.get("seoTitle") or "", "seo_description_en": p.get("seoDescription") or "",
+        "name_de": tr.get("name") or "", "description_de": _paras_from_editor(tr.get("description")), "seo_title_de": tr.get("seoTitle") or "", "seo_description_de": tr.get("seoDescription") or "",
+        "variants": [{"id": v["id"], "name": v.get("name") or "", "sku": v.get("sku") or "", "attributes": {a["attribute"]["name"]: ", ".join(x["name"] for x in a["values"]) for a in v["attributes"] if a["values"]}} for v in p["variants"]],
+    }
+
+
+class ImproveBody(BaseModel):
+    product_id: str
+    tone: str = "clear and premium"
+    languages: List[str] = ["en", "de"]
+    instructions: str = ""
+    provider: Optional[str] = None
+    model: Optional[str] = None
+
+
+@router.post("/improve")
+async def improve(body: ImproveBody, shop: Installation = Depends(current_shop)):
+    current = await copy_source(body.product_id, shop)
+    provider, model = (body.provider, body.model) if body.provider else _llm_choice(shop.domain)
+    keys = db.get_settings(shop.domain).get("keys", {})
+    if not keys.get(provider):
+        raise HTTPException(status_code=400, detail=f"no API key for {provider}")
+    try:
+        result = await improve_copy(provider, model or DEFAULT_MODELS.get(provider), current, body.tone, body.languages, body.instructions, provider_key(shop.domain, provider))
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"provider": provider, "model": model or DEFAULT_MODELS.get(provider), "current": current, "suggestion": result}
+
+
+class ApplyCopyBody(BaseModel):
+    product_id: str
+    name_en: Optional[str] = None
+    description_en: Optional[List[str]] = None
+    seo_title_en: Optional[str] = None
+    seo_description_en: Optional[str] = None
+    name_de: Optional[str] = None
+    description_de: Optional[List[str]] = None
+    seo_title_de: Optional[str] = None
+    seo_description_de: Optional[str] = None
+    variant_names: Dict[str, str] = {}
+
+
+@router.post("/apply-copy")
+async def apply_copy(body: ApplyCopyBody, shop: Installation = Depends(current_shop)):
+    steps = []
+    try:
+        async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+            inp = {}
+            if body.name_en is not None: inp["name"] = body.name_en.strip()
+            if body.description_en is not None: inp["description"] = editorjs(body.description_en)
+            if body.seo_title_en is not None or body.seo_description_en is not None:
+                inp["seo"] = {"title": (body.seo_title_en or "")[:70], "description": (body.seo_description_en or "")[:300]}
+            if inp:
+                await api.update_product(body.product_id, inp); steps.append("English texts updated")
+            if body.name_de or body.description_de:
+                await api.translate_product(body.product_id, "DE", body.name_de or "", editorjs(body.description_de or []), (body.seo_title_de or "")[:70], (body.seo_description_de or "")[:300])
+                steps.append("German translation updated")
+            for vid, name in body.variant_names.items():
+                if name and name.strip():
+                    await api.update_variant(vid, {"name": name.strip()[:255]})
+            if body.variant_names:
+                steps.append(f"{len(body.variant_names)} variant name(s) updated")
+    except SaleorAPIError as exc:
+        raise HTTPException(status_code=502, detail={"message": str(exc), "errors": exc.errors, "done": steps})
+    await notify_storefront(shop.domain, body.product_id, "", "copy-updated")
+    return {"steps": steps}

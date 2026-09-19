@@ -46,7 +46,7 @@
     $("#waiting").hidden = true; $("#app").hidden = false;
     try {
       state.meta = await api("/api/builder/meta");
-      fillSettings(); fillMeta(); await loadPhotos(); showStep(1);
+      fillSettings(); fillMeta(); await loadPhotos(); showStep(1); await cpLoad(true);
     } catch (e) { notify("error", e.message); }
   }
   function fillSettings() {
@@ -94,6 +94,56 @@
     const box = $("#steps"); box.replaceChildren();
     STEPS.forEach((label, i) => box.append(el("span", { class: `chip${i + 1 === n ? " active" : i + 1 < n ? " done" : ""}`, onclick: () => { if (i + 1 < n) showStep(i + 1); } }, `${i + 1} · ${label}`)));
   }
+
+  // ---- copy mode ----------------------------------------------------------------
+  const CP = { products: [], cursor: null, search: "", product: null, current: null, suggestion: null };
+  const FIELDS = [["name_en", "Title (EN)", "input"], ["name_de", "Title (DE)", "input"], ["description_en", "Description (EN)", "text"], ["description_de", "Description (DE)", "text"],
+    ["seo_title_en", "SEO title (EN)", "input"], ["seo_description_en", "SEO description (EN)", "input"], ["seo_title_de", "SEO title (DE)", "input"], ["seo_description_de", "SEO description (DE)", "input"]];
+  $("#show-wizard").addEventListener("click", (e) => { e.preventDefault(); $("#copy-mode").hidden = true; $("#wizard").hidden = false; });
+  async function cpLoad(reset) {
+    if (reset) { CP.products = []; CP.cursor = null; }
+    const params = new URLSearchParams({ search: CP.search, first: "20" }); if (CP.cursor) params.set("after", CP.cursor);
+    const page = await api(`/api/studio/products?${params}`); CP.products.push(...page.items); CP.cursor = page.endCursor;
+    $("#cp-more").hidden = !page.hasNextPage; $("#cp-page").textContent = `${CP.products.length} of ${page.totalCount}`;
+    const ul = $("#cp-list"); ul.replaceChildren();
+    for (const p of CP.products) ul.append(el("li", { class: CP.product?.id === p.id ? "active" : "", onclick: () => cpSelect(p) }, p.thumbnail ? el("img", { src: p.thumbnail, alt: "" }) : el("div", { class: "thumb-empty" }), el("div", { style: "min-width:0" }, el("div", { class: "name" }, p.name), el("div", { class: "sub" }, p.category || ""))));
+  }
+  let cpT; $("#cp-search").addEventListener("input", (e) => { clearTimeout(cpT); cpT = setTimeout(() => { CP.search = e.target.value.trim(); cpLoad(true); }, 350); });
+  $("#cp-more").addEventListener("click", () => cpLoad(false));
+  async function cpSelect(p) {
+    CP.product = p; CP.suggestion = null; $("#cp-empty").hidden = true; $("#cp-work").hidden = false; $("#cp-msg").textContent = "Loading…"; $("#cp-apply").disabled = true;
+    await cpLoad(false);
+    try { CP.current = await api(`/api/builder/copy/${encodeURIComponent(p.id)}`); $("#cp-title").textContent = CP.current.name; $("#cp-sub").textContent = [CP.current.product_type, CP.current.category, ...Object.entries(CP.current.attributes).map(([k, v]) => `${k}: ${v}`)].filter(Boolean).join(" · "); cpRender(); $("#cp-msg").textContent = ""; }
+    catch (e) { $("#cp-msg").textContent = e.message; }
+  }
+  const asText = (v) => Array.isArray(v) ? v.join("\n\n") : (v || "");
+  function cpRender() {
+    const box = $("#cp-fields"); box.replaceChildren(); const cur = CP.current, sug = CP.suggestion || {};
+    for (const [key, label, kind] of FIELDS) {
+      const before = asText(cur[key]); const after = key in sug ? asText(sug[key]) : before;
+      const left = kind === "text" ? el("textarea", { rows: 5, readonly: true }, before) : el("input", { value: before, readonly: true });
+      const right = kind === "text" ? el("textarea", { rows: 5, "data-key": key }, after) : el("input", { "data-key": key, value: after });
+      if (key in sug && after !== before) right.classList.add("changed");
+      box.append(el("div", { class: "cp-row" }, el("label", {}, label, left), el("label", {}, key in sug ? el("span", {}, label, " ", el("span", { class: "badge badge-ok" }, "proposal")) : label, right)));
+    }
+    const t = $("#cp-variants"); t.replaceChildren(el("thead", {}, el("tr", {}, el("th", {}, "Variant"), el("th", {}, "SKU"), el("th", {}, "Current name"), el("th", {}, "New name"))));
+    const tb = el("tbody"); for (const v of cur.variants) { const prop = (sug.variant_names || {})[v.id]; tb.append(el("tr", { "data-id": v.id }, el("td", {}, Object.values(v.attributes).join(" / ") || "default"), el("td", {}, v.sku || "—"), el("td", {}, v.name || "—"), el("td", {}, el("input", { "data-vname": "", value: prop ?? v.name ?? "", class: prop && prop !== v.name ? "changed" : "" })))); } t.append(tb);
+    $("#cp-apply").disabled = false;
+  }
+  $("#cp-improve").addEventListener("click", async () => {
+    if (!CP.product) return; const btn = $("#cp-improve"); btn.disabled = true; $("#cp-msg").textContent = "Asking the AI… (10–60 s; the local model is slower on the first call)";
+    try { const r = await api("/api/builder/improve", { method: "POST", body: JSON.stringify({ product_id: CP.product.id, tone: $("#cp-tone").value, languages: $("#cp-lang").value.split(","), instructions: $("#cp-instructions").value.trim() }) });
+      CP.suggestion = r.suggestion; cpRender(); $("#cp-msg").textContent = `Proposal from ${r.provider} · ${r.model}. ${r.suggestion.notes || ""} Edit anything on the right, then Apply.`; }
+    catch (e) { $("#cp-msg").textContent = e.message; } finally { btn.disabled = false; }
+  });
+  $("#cp-apply").addEventListener("click", async () => {
+    const btn = $("#cp-apply"); btn.disabled = true; $("#cp-apply-msg").textContent = "Saving…";
+    const body = { product_id: CP.product.id, variant_names: {} };
+    for (const [key, , kind] of FIELDS) { const elm = $(`#cp-fields [data-key="${key}"]`); const val = elm.value.trim(); const before = asText(CP.current[key]).trim(); if (val === before) continue; body[key] = kind === "text" ? val.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean) : val; }
+    for (const tr of $("#cp-variants").querySelectorAll("tbody tr")) { const v = CP.current.variants.find((x) => x.id === tr.dataset.id); const val = tr.querySelector("input[data-vname]").value.trim(); if (v && val && val !== v.name) body.variant_names[v.id] = val; }
+    try { const r = await api("/api/builder/apply-copy", { method: "POST", body: JSON.stringify(body) }); $("#cp-apply-msg").textContent = r.steps.join(", ") || "Nothing changed."; notify("success", r.steps.join(", ") || "Nothing changed"); CP.current = await api(`/api/builder/copy/${encodeURIComponent(CP.product.id)}`); CP.suggestion = null; cpRender(); $("#cp-title").textContent = CP.current.name; }
+    catch (e) { $("#cp-apply-msg").textContent = e.message; } finally { btn.disabled = false; }
+  });
 
   // ---- step 1: photos --------------------------------------------------------
   async function loadPhotos() {
