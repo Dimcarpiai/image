@@ -216,6 +216,22 @@ async def create(body: CreateBody, shop: Installation = Depends(current_shop)):
             if not ptype:
                 raise HTTPException(status_code=400, detail="unknown product type")
             attr_types = {a["id"]: a["inputType"] for a in ptype["productAttributes"] + ptype["variantAttributes"]}
+            # pre-flight: required variant attributes must have a value on every enabled variant
+            for a in ptype["variantAttributes"]:
+                if not a.get("valueRequired"):
+                    continue
+                fallback = a["values"][0] if a["values"] else None
+                for v in enabled:
+                    if not v.attributes.get(a["id"]):
+                        if fallback is None:
+                            raise HTTPException(status_code=400, detail=f"variant attribute '{a['name']}' is required by product type '{ptype['name']}' but has no value — select values for it in the Variants step")
+                        v.attributes[a["id"]] = fallback
+            for a in ptype["productAttributes"]:
+                if a.get("valueRequired") and not body.product_attributes.get(a["id"]):
+                    if a["values"]:
+                        body.product_attributes[a["id"]] = a["values"][0]
+                    else:
+                        raise HTTPException(status_code=400, detail=f"product attribute '{a['name']}' is required by the product type — fill it in the Details step")
 
             product_input = {
                 "productType": body.product_type_id, "name": body.name.strip(),

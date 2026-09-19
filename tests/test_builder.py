@@ -62,6 +62,7 @@ class FakeSaleor:
                             {"attribute": {"id": "A_SIZE", "name": "Size", "slug": "size", "inputType": "DROPDOWN", "valueRequired": True, "choices": {"edges": [{"node": {"name": "S"}}, {"node": {"name": "M"}}]}}, "variantSelection": True},
                             {"attribute": {"id": "A_COL", "name": "Colour", "slug": "colour", "inputType": "DROPDOWN", "valueRequired": True, "choices": {"edges": []}}, "variantSelection": True}]}}]}}}
             if "productCreate" in q:
+                self.created_count = getattr(self, "created_count", 0) + 1
                 self.product_input = v["input"]
                 return {"data": {"productCreate": {"product": {"id": "PNEW", "name": v["input"]["name"], "slug": "polo-shirt"}, "errors": []}}}
             if "productChannelListingUpdate" in q:
@@ -176,6 +177,11 @@ def test_builder_end_to_end(saleor, monkeypatch):
         # storefront was told
         assert saleor.revalidations[-1]["body"]["productId"] == "PNEW" and saleor.revalidations[-1]["auth"] == "Bearer s3"
 
+        # required variant attribute missing everywhere and without fallback → rejected before anything is created
+        before = getattr(saleor, "created_count", 0)
+        nov = dict(body); nov["variants"] = [dict(body["variants"][0], attributes={"A_SIZE": "S"})]
+        r = c.post("/api/builder/create", headers=H(saleor), json=nov)
+        assert r.status_code == 400 and "Colour" in r.text and getattr(saleor, "created_count", 0) == before
         # duplicate SKUs are made unique instead of rejected
         dup = dict(body); dup["variants"] = [dict(body["variants"][0], attributes={"A_SIZE": "S", "A_COL": "Burgundy"}), dict(body["variants"][0], attributes={"A_SIZE": "M", "A_COL": "Burgundy"})]
         r = c.post("/api/builder/create", headers=H(saleor), json=dup).json()

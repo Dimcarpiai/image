@@ -230,7 +230,7 @@
       for (const v of known) chips.append(el("span", { class: `val${state.variantValues[a.id].includes(v) ? " on" : ""}`, onclick: () => { const arr = state.variantValues[a.id]; const i = arr.indexOf(v); i >= 0 ? arr.splice(i, 1) : arr.push(v); renderVariantAttrs(); } }, v));
       const add = el("input", { placeholder: "add value ↵", onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) { state.variantValues[a.id].push(e.target.value.trim()); renderVariantAttrs(); } } });
       chips.append(add);
-      box.append(el("label", {}, `${a.name} (${state.variantValues[a.id].length} selected)`, chips));
+      box.append(el("label", {}, `${a.name}${a.valueRequired ? " *" : ""} (${state.variantValues[a.id].length} selected)`, chips));
     }
     if (!(ptype()?.variantAttributes || []).length) box.append(el("p", { class: "muted" }, "This product type has no variant attributes — one variant will be created."));
   }
@@ -247,6 +247,8 @@
   }
   function buildMatrix() {
     const attrs = ptype().variantAttributes;
+    const missing = attrs.filter((a) => a.valueRequired && !state.variantValues[a.id].length && !a.values.length);
+    if (missing.length) return notify("error", `Required variant attribute without values: ${missing.map((a) => a.name).join(", ")} — add at least one value.`);
     const lists = attrs.map((a) => (state.variantValues[a.id].length ? state.variantValues[a.id] : [""]));
     const combos = lists.reduce((acc, list) => acc.flatMap((c) => list.map((v) => [...c, v])), [[]]);
     const prices = Object.fromEntries([...$("#base-prices").querySelectorAll("input")].map((i) => [i.dataset.ch, Number(i.value || 0)]));
