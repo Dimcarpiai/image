@@ -298,3 +298,14 @@ def test_multiple_model_photos_make_one_job_each(saleor, monkeypatch):
         batch = [x for x in res if x["batch"] == r["batch"]]
         assert len(batch) == 3 and {x["label"].split("·")[-1].strip() for x in batch} == {"model 1/3", "model 2/3", "model 3/3"}
         c.put("/api/studio/settings", headers=H(saleor), json={"preferred_providers": {"tryon": ""}})
+
+
+def test_model_photo_from_product_image(saleor):
+    with TestClient(app) as c:
+        a = c.post("/api/studio/assets/models/from", headers=H(saleor), json={"url": saleor.base + "/media/front.png", "label": "Rugby model"}).json()
+        assert a["kind"] == "model" and a["label"] == "Rugby model" and c.get(a["url"]).status_code == 200
+        up = c.post("/api/builder/upload", headers=H(saleor), files={"file": ("m.png", png(), "image/png")}).json()
+        b = c.post("/api/studio/assets/models/from", headers=H(saleor), json={"asset_id": up["id"]}).json()
+        assert b["kind"] == "model" and b["meta"]["from_asset"] == up["id"]
+        same = c.post("/api/studio/assets/models/from", headers=H(saleor), json={"asset_id": b["id"]}).json()
+        assert same["id"] == b["id"]

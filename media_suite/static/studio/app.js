@@ -200,7 +200,17 @@
           return;
         }
         grid.replaceChildren();
-        if (key === "model") { for (const m of S.models) add({ id: m.id, url: location.origin + m.url, thumb: m.url }, (m.label || "model") + (m.id === S.lockedModel ? " · locked" : ""), true); if (!q) grid.append(el("p", { class: "muted", style: "grid-column:1/-1" }, "Upload a photo, or generate one with “On model” → “Keep this model”.")); return; }
+        if (key === "model") {
+          grid.append(el("p", { class: "muted", style: "grid-column:1/-1;margin:0" }, "Model library"));
+          for (const m of S.models) add({ id: m.id, url: location.origin + m.url, thumb: m.url }, (m.label || "model") + (m.id === S.lockedModel ? " · locked" : ""), true);
+          if (!S.models.length) grid.append(el("p", { class: "muted", style: "grid-column:1/-1" }, "empty — pick a product image below, upload, or use “Keep this model” on a result"));
+          grid.append(el("p", { class: "muted", style: "grid-column:1/-1;margin:8px 0 0" }, "Product images in Saleor (click to use as model photo)"));
+          const [page, uploads] = await Promise.all([api(`/api/studio/products?${new URLSearchParams({ search: q, first: "24" })}`), q ? [] : api("/api/studio/assets?kind=upload")]);
+          const useAs = (payload, label) => async () => { try { const a = await api("/api/studio/assets/models/from", { method: "POST", body: JSON.stringify({ ...payload, label }) }); if (!S.models.some((m) => m.id === a.id)) S.models.push(a); setRef("model", { id: a.id, url: location.origin + a.url, thumb: a.url }); load(q); } catch (e) { notify("error", e.message); } };
+          for (const p of page.items) for (const m of p.media) grid.append(el("div", { class: "tile", onclick: useAs({ url: m.url }, p.name) }, el("img", { src: m.thumb, alt: "", loading: "lazy" }), el("div", { class: "cap", title: p.name }, p.name)));
+          for (const a of uploads) grid.append(el("div", { class: "tile", onclick: useAs({ asset_id: a.id }, a.label || "upload") }, el("img", { src: a.url, alt: "", loading: "lazy" }), el("div", { class: "cap" }, a.label || "upload")));
+          return;
+        }
         if (!q && S.product) { for (const m of S.product.media) add({ url: m.url, thumb: m.thumb }, S.product.name); for (const r of S.results) for (const a of r.assets) if (a.mime.startsWith("image/")) add({ id: a.id, url: location.origin + a.url, thumb: a.url }, "result · " + (r.label || "")); }
         const [page, uploads] = await Promise.all([api(`/api/studio/products?${new URLSearchParams({ search: q, first: "24" })}`), q ? [] : api("/api/studio/assets?kind=upload")]);
         for (const p of page.items) { if (S.product && p.id === S.product.id) continue; for (const m of p.media) add({ url: m.url, thumb: m.thumb }, p.name); }

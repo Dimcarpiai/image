@@ -721,3 +721,34 @@ async def auto_pack_for_product(installation: Installation, product_id: str, med
         log.info("auto pack for %s: %s", product_id, [j.get("id") or j.get("error") for j in result])
     except Exception as exc:  # noqa: BLE001
         log.warning("auto pack for %s failed: %s", product_id, exc)
+
+
+# -- model photo from an existing image (product media, upload, generated) --------------
+class ModelFromBody(BaseModel):
+    url: Optional[str] = None
+    asset_id: Optional[str] = None
+    label: str = ""
+
+
+@router.post("/assets/models/from")
+async def model_from_existing(body: ModelFromBody, shop: Installation = Depends(current_shop)):
+    import shutil
+    from .jobs import _own_asset_from_url, _check_public_url
+    src = db.get_asset(shop.domain, body.asset_id) if body.asset_id else (_own_asset_from_url(shop.domain, body.url) if body.url else None)
+    if src:
+        # already a model photo? reuse it
+        if src["kind"] == "model":
+            return _asset_out(src)
+        path = os.path.join(asset_dir("models"), f"{uuid.uuid4().hex}.png")
+        shutil.copyfile(src["path"], path)
+        return _asset_out(db.add_asset(shop.domain, "model", src["mime"], path, label=body.label or src.get("label") or "model", meta={"status": "approved", "from_asset": src["id"]}))
+    if not body.url:
+        raise HTTPException(status_code=400, detail="url or asset_id required")
+    _check_public_url(body.url)
+    async with SaleorAPI(shop.saleor_api_url, shop.auth_token) as api:
+        data = await api.download(body.url)
+    img = normalize_image(data, 2500)
+    path = os.path.join(asset_dir("models"), f"{uuid.uuid4().hex}.png")
+    with open(path, "wb") as f:
+        f.write(img.data)
+    return _asset_out(db.add_asset(shop.domain, "model", "image/png", path, label=body.label or "model", meta={"status": "approved", "source_url": body.url}))
