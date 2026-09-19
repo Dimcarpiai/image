@@ -46,7 +46,7 @@
     $("#waiting").hidden = true; $("#app").hidden = false;
     try {
       state.meta = await api("/api/builder/meta");
-      fillSettings(); fillMeta(); await loadPhotos(); showStep(1); await cpLoad(true);
+      fillSettings(); fillMeta(); await loadPhotos(); $("#wizard").hidden = true; await cpLoad(true);
     } catch (e) { notify("error", e.message); }
   }
   function fillSettings() {
@@ -97,8 +97,6 @@
 
   // ---- copy mode ----------------------------------------------------------------
   const CP = { products: [], cursor: null, search: "", product: null, current: null, suggestion: null };
-  const FIELDS = [["name_en", "Title (EN)", "input"], ["name_de", "Title (DE)", "input"], ["intro_en", "Intro (EN)", "text"], ["intro_de", "Intro (DE)", "text"], ["details_en", "Product Details (EN) — one per line", "list"], ["details_de", "Produktdetails (DE) — one per line", "list"],
-    ["seo_title_en", "SEO title (EN)", "input"], ["seo_description_en", "SEO description (EN)", "input"], ["seo_title_de", "SEO title (DE)", "input"], ["seo_description_de", "SEO description (DE)", "input"]];
   $("#show-wizard").addEventListener("click", (e) => { e.preventDefault(); $("#copy-mode").hidden = true; $("#wizard").hidden = false; });
   async function cpLoad(reset) {
     if (reset) { CP.products = []; CP.cursor = null; }
@@ -110,41 +108,32 @@
   }
   let cpT; $("#cp-search").addEventListener("input", (e) => { clearTimeout(cpT); cpT = setTimeout(() => { CP.search = e.target.value.trim(); cpLoad(true); }, 350); });
   $("#cp-more").addEventListener("click", () => cpLoad(false));
+  // ---- edit mode: the same four steps, pre-filled with an existing product ------------
+  const EDIT = { product: null, details: null, copy: null };
   async function cpSelect(p) {
-    CP.product = p; CP.suggestion = null; $("#cp-empty").hidden = true; $("#cp-work").hidden = false; $("#cp-msg").textContent = "Loading…"; $("#cp-apply").disabled = true;
-    await cpLoad(false);
-    try { CP.current = await api(`/api/builder/copy/${encodeURIComponent(p.id)}`); $("#cp-title").textContent = CP.current.name; $("#cp-sub").textContent = [CP.current.product_type, CP.current.category, ...Object.entries(CP.current.attributes).map(([k, v]) => `${k}: ${v}`)].filter(Boolean).join(" · "); cpRender(); $("#cp-msg").textContent = ""; }
-    catch (e) { $("#cp-msg").textContent = e.message; }
+    EDIT.product = p; state.selected = []; state.matrix = []; state.draft = null;
+    await cpLoad(false); $("#cp-empty").hidden = true; $("#wizard").hidden = false;
+    try {
+      [EDIT.details, EDIT.copy] = await Promise.all([api(`/api/studio/product-details/${encodeURIComponent(p.id)}`), api(`/api/builder/copy/${encodeURIComponent(p.id)}`)]);
+    } catch (e) { return notify("error", e.message); }
+    const d = EDIT.details, cpy = EDIT.copy;
+    $("#photos-hint").textContent = "Product images in Saleor are shown first. Tick extra photos only if you want the AI to consider them or attach them.";
+    $("#ptype").value = [...$("#ptype").options].find((o) => o.textContent === cpy.product_type)?.value || $("#ptype").value; renderProductAttrs(); renderVariantAttrs();
+    $("#category").value = d.category_id || ""; $("#name-en").value = d.name; $("#name-de").value = d.translation_de.name;
+    $("#desc-en").value = cpy.intro_en.join("\n\n"); $("#desc-de").value = cpy.intro_de.join("\n\n"); $("#details-en").value = cpy.details_en.join("\n"); $("#details-de").value = cpy.details_de.join("\n");
+    $("#seo-title-en").value = d.seo_title; $("#seo-desc-en").value = d.seo_description; $("#seo-title-de").value = d.translation_de.seo_title; $("#seo-desc-de").value = d.translation_de.seo_description;
+    for (const inp of document.querySelectorAll("#product-attrs [data-attr]")) { const a = d.attributes.find((x) => x.id === inp.dataset.attr); if (a) inp.value = a.value; }
+    $("#create").textContent = "Save to Saleor"; $("#to-draft").disabled = false;
+    renderPhotos(); renderExistingVariants(); showStep(1);
   }
-  const asText = (v, kind) => Array.isArray(v) ? v.join(kind === "list" ? "\n" : "\n\n") : (v || "");
-  function cpRender() {
-    const box = $("#cp-fields"); box.replaceChildren(); const cur = CP.current, sug = CP.suggestion || {};
-    for (const [key, label, kind] of FIELDS) {
-      const before = asText(cur[key], kind); const after = key in sug ? asText(sug[key], kind) : before;
-      const rows = kind === "list" ? 9 : 4;
-      const left = kind !== "input" ? el("textarea", { rows, readonly: true }, before) : el("input", { value: before, readonly: true });
-      const right = kind !== "input" ? el("textarea", { rows, "data-key": key }, after) : el("input", { "data-key": key, value: after });
-      if (key in sug && after !== before) right.classList.add("changed");
-      box.append(el("div", { class: "cp-row" }, el("label", {}, label, left), el("label", {}, key in sug ? el("span", {}, label, " ", el("span", { class: "badge badge-ok" }, "proposal")) : label, right)));
-    }
-    const t = $("#cp-variants"); t.replaceChildren(el("thead", {}, el("tr", {}, el("th", {}, "Variant"), el("th", {}, "SKU"), el("th", {}, "Current name"), el("th", {}, "New name"))));
-    const tb = el("tbody"); for (const v of cur.variants) { const prop = (sug.variant_names || {})[v.id]; tb.append(el("tr", { "data-id": v.id }, el("td", {}, Object.values(v.attributes).join(" / ") || "default"), el("td", {}, v.sku || "—"), el("td", {}, v.name || "—"), el("td", {}, el("input", { "data-vname": "", value: prop ?? v.name ?? "", class: prop && prop !== v.name ? "changed" : "" })))); } t.append(tb);
-    $("#cp-apply").disabled = false;
+  function renderExistingVariants() {
+    const box = $("#existing-variants-box"); const d = EDIT.details; if (!EDIT.product || !d) { box.hidden = true; return; }
+    box.hidden = false; const t = $("#existing-variants"); t.replaceChildren();
+    t.append(el("thead", {}, el("tr", {}, el("th", {}, "Variant"), el("th", {}, "SKU"), ...d.channels.map((c) => el("th", {}, `Price ${c.currencyCode}`)), ...d.warehouses.map((w) => el("th", {}, `Stock ${w.name}`)))));
+    const tb = el("tbody"); for (const v of d.variants) tb.append(el("tr", { "data-id": v.id }, el("td", {}, v.label), el("td", {}, el("input", { "data-sku": "", value: v.sku })), ...d.channels.map((c) => el("td", {}, el("input", { class: "num", type: "number", step: "0.01", "data-ch": c.id, value: v.prices[c.id] ?? "" }))), ...d.warehouses.map((w) => el("td", {}, el("input", { class: "num", type: "number", "data-wh": w.id, value: v.stocks[w.id] ?? 0 }))))); t.append(tb);
+    $("#matrix-info").textContent = "Build the table below only for NEW colour/size combinations; existing ones are listed above."; $("#create").disabled = false;
   }
-  $("#cp-improve").addEventListener("click", async () => {
-    if (!CP.product) return; const btn = $("#cp-improve"); btn.disabled = true; $("#cp-msg").textContent = "Asking the AI… (10–60 s; the local model is slower on the first call)";
-    try { const r = await api("/api/builder/improve", { method: "POST", body: JSON.stringify({ product_id: CP.product.id, tone: $("#cp-tone").value, languages: $("#cp-lang").value.split(","), instructions: $("#cp-instructions").value.trim() }) });
-      CP.suggestion = r.suggestion; cpRender(); $("#cp-msg").textContent = `Proposal from ${r.provider} · ${r.model}. ${r.suggestion.notes || ""} Edit anything on the right, then Apply.`; }
-    catch (e) { $("#cp-msg").textContent = e.message; } finally { btn.disabled = false; }
-  });
-  $("#cp-apply").addEventListener("click", async () => {
-    const btn = $("#cp-apply"); btn.disabled = true; $("#cp-apply-msg").textContent = "Saving…";
-    const body = { product_id: CP.product.id, variant_names: {} };
-    for (const [key, , kind] of FIELDS) { const elm = $(`#cp-fields [data-key="${key}"]`); const val = elm.value.trim(); const before = asText(CP.current[key], kind).trim(); if (val === before) continue; body[key] = kind === "text" ? val.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean) : kind === "list" ? val.split(/\n/).map((x) => x.replace(/^[-*•]\s*/, "").trim()).filter(Boolean) : val; }
-    for (const tr of $("#cp-variants").querySelectorAll("tbody tr")) { const v = CP.current.variants.find((x) => x.id === tr.dataset.id); const val = tr.querySelector("input[data-vname]").value.trim(); if (v && val && val !== v.name) body.variant_names[v.id] = val; }
-    try { const r = await api("/api/builder/apply-copy", { method: "POST", body: JSON.stringify(body) }); $("#cp-apply-msg").textContent = r.steps.join(", ") || "Nothing changed."; notify("success", r.steps.join(", ") || "Nothing changed"); CP.current = await api(`/api/builder/copy/${encodeURIComponent(CP.product.id)}`); CP.suggestion = null; cpRender(); $("#cp-title").textContent = CP.current.name; }
-    catch (e) { $("#cp-apply-msg").textContent = e.message; } finally { btn.disabled = false; }
-  });
+  $("#show-wizard").addEventListener("click", (e) => { e.preventDefault(); EDIT.product = null; EDIT.details = null; $("#create").textContent = "Create product in Saleor"; $("#existing-variants-box").hidden = true; $("#cp-empty").hidden = true; $("#wizard").hidden = false; showStep(1); });
 
   // ---- step 1: photos --------------------------------------------------------
   async function loadPhotos() {
@@ -154,6 +143,7 @@
   }
   function renderPhotos() {
     const grid = $("#photos"); grid.replaceChildren();
+    if (EDIT.product) for (const m of EDIT.product.media || []) grid.append(el("div", { class: "tile" }, el("img", { src: m.thumb, alt: "" }), el("div", { class: "cap" }, "in Saleor")));
     for (const a of state.photos) {
       const idx = state.selected.indexOf(a.id);
       grid.append(el("div", { class: `tile${idx >= 0 ? " selected" : ""}`, onclick: () => { idx >= 0 ? state.selected.splice(idx, 1) : state.selected.push(a.id); renderPhotos(); } },
@@ -162,7 +152,7 @@
     }
     if (!state.photos.length) grid.append(el("p", { class: "muted" }, "No photos yet — upload some."));
     $("#photos-info").textContent = state.selected.length ? `${state.selected.length} selected · first one is the main image` : "Tick the photos for this product";
-    $("#to-draft").disabled = !state.selected.length;
+    $("#to-draft").disabled = !state.selected.length && !EDIT.product;
   }
   $("#upload").addEventListener("change", async (e) => {
     for (const file of e.target.files) {
@@ -176,16 +166,26 @@
   // ---- step 2: draft ----------------------------------------------------------
   $("#skip-draft").addEventListener("click", () => showStep(3));
   $("#run-draft").addEventListener("click", async () => {
-    const btn = $("#run-draft"); btn.disabled = true; $("#draft-msg").textContent = "Asking the AI… (10–30 s)";
+    const btn = $("#run-draft"); btn.disabled = true; $("#draft-msg").textContent = "Asking the AI… (10–60 s)";
     try {
-      const r = await api("/api/builder/draft", { method: "POST", body: JSON.stringify({ asset_ids: state.selected, hints: $("#hints").value.trim() }) });
-      state.draft = r.draft; applyDraft(r.draft); $("#draft-msg").textContent = `Drafted with ${r.provider} · ${r.model}`; showStep(3);
+      if (EDIT.product && !state.selected.length) {
+        const r = await api("/api/builder/improve", { method: "POST", body: JSON.stringify({ product_id: EDIT.product.id, tone: $("#draft-tone").value, instructions: $("#hints").value.trim() }) });
+        const g = r.suggestion; const set = (id, v) => { if (v !== undefined && v !== null) $(id).value = Array.isArray(v) ? v.join(id.includes("details") ? "\n" : "\n\n") : v; };
+        set("#name-en", g.name_en); set("#name-de", g.name_de); set("#desc-en", g.intro_en); set("#desc-de", g.intro_de); set("#details-en", g.details_en); set("#details-de", g.details_de);
+        set("#seo-title-en", g.seo_title_en); set("#seo-desc-en", g.seo_description_en); set("#seo-title-de", g.seo_title_de); set("#seo-desc-de", g.seo_description_de);
+        EDIT.variantNames = g.variant_names || {}; $("#draft-msg").textContent = `Written with ${r.provider} · ${r.model}. ${g.notes || ""}`;
+      } else {
+        const r = await api("/api/builder/draft", { method: "POST", body: JSON.stringify({ asset_ids: state.selected, hints: $("#hints").value.trim() }) });
+        state.draft = r.draft; applyDraft(r.draft); $("#draft-msg").textContent = `Drafted with ${r.provider} · ${r.model}`;
+      }
+      showStep(3);
     } catch (e) { $("#draft-msg").textContent = e.message; notify("error", e.message); }
     finally { btn.disabled = false; }
   });
   function applyDraft(d) {
     const set = (id, v) => { if (v !== undefined && v !== null) $(id).value = Array.isArray(v) ? v.join("\n\n") : v; };
     set("#name-en", d.name); set("#name-de", d.name_de); set("#desc-en", d.description_en); set("#desc-de", d.description_de);
+    if (Array.isArray(d.bullets_en)) $("#details-en").value = d.bullets_en.join("\n"); if (Array.isArray(d.bullets_de)) $("#details-de").value = d.bullets_de.join("\n");
     set("#seo-title-en", d.seo_title_en); set("#seo-desc-en", d.seo_description_en); set("#seo-title-de", d.seo_title_de); set("#seo-desc-de", d.seo_description_de);
     set("#alt-text", d.alt_text_en);
     // category by hint
@@ -217,7 +217,7 @@
     if (!$("#name-en").value.trim()) return notify("error", "Product name is required.");
     if (!$("#category").value) notify("error", "No category chosen — the product will be created unpublished. Pick a category to publish it.");
     if (!$("#style-code").value) $("#style-code").value = ($("#name-en").value.split(/\s+/)[0] || "ITEM").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6);
-    renderVariantAttrs(); renderBasePrices(); showStep(4);
+    renderVariantAttrs(); renderBasePrices(); renderExistingVariants(); showStep(4);
   });
 
   // ---- step 4: variants --------------------------------------------------------
@@ -254,7 +254,8 @@
     const prices = Object.fromEntries([...$("#base-prices").querySelectorAll("input")].map((i) => [i.dataset.ch, Number(i.value || 0)]));
     const stocks = Object.fromEntries([...$("#base-stocks").querySelectorAll("input")].map((i) => [i.dataset.wh, Number(i.value || 0)]));
     const brand = $("#brand-code").value, style = $("#style-code").value;
-    state.matrix = combos.map((combo) => {
+    const existing = new Set((EDIT.details?.variants || []).map((v) => v.label));
+    state.matrix = combos.filter((combo) => !existing.has(combo.filter(Boolean).join(" / "))).map((combo) => {
       const attributes = Object.fromEntries(attrs.map((a, i) => [a.id, combo[i]]).filter(([, v]) => v));
       const ctx = { brand, style };
       attrs.forEach((a, i) => { const n = a.name.toLowerCase(); ctx[n.includes("colo") ? "color" : n.includes("size") ? "size" : a.slug] = combo[i]; });
@@ -278,10 +279,34 @@
       body.append(tr);
     }
     t.append(body);
-    $("#matrix-info").textContent = `${state.matrix.length} variant(s)`;
-    $("#create").disabled = !state.matrix.length;
+    $("#matrix-info").textContent = `${state.matrix.length} ${EDIT.product ? "new " : ""}variant(s)`;
+    $("#create").disabled = !state.matrix.length && !EDIT.product;
+  }
+  const lines = (id) => $(id).value.split(/\n/).map((x) => x.replace(/^[-*•]\s*/, "").trim()).filter(Boolean);
+  async function saveExisting() {
+    const btn = $("#create"); btn.disabled = true; $("#create-msg").textContent = "Saving…"; const d = EDIT.details; const steps = [];
+    try {
+      const attrs = Object.fromEntries([...document.querySelectorAll("#product-attrs [data-attr]")].map((i) => [i.dataset.attr, i.value.trim()]).filter(([, v]) => v));
+      const variants = [...$("#existing-variants").querySelectorAll("tbody tr")].map((tr) => ({ id: tr.dataset.id, sku: tr.querySelector("input[data-sku]").value, prices: Object.fromEntries([...tr.querySelectorAll("input[data-ch]")].filter((i) => i.value !== "").map((i) => [i.dataset.ch, Number(i.value)])), stocks: Object.fromEntries([...tr.querySelectorAll("input[data-wh]")].map((i) => [i.dataset.wh, Number(i.value || 0)])) }));
+      const r1 = await api(`/api/studio/product-details/${encodeURIComponent(EDIT.product.id)}`, { method: "PUT", body: JSON.stringify({ name: $("#name-en").value.trim(), category_id: $("#category").value || null, description: $("#desc-en").value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean), seo_title: $("#seo-title-en").value.trim(), seo_description: $("#seo-desc-en").value.trim(), attributes: attrs, translation_de: null, variants }) });
+      steps.push(...r1.steps);
+      const r2 = await api("/api/builder/apply-copy", { method: "POST", body: JSON.stringify({ product_id: EDIT.product.id, intro_en: $("#desc-en").value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean), details_en: lines("#details-en"), name_de: $("#name-de").value.trim(), intro_de: $("#desc-de").value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean), details_de: lines("#details-de"), seo_title_de: $("#seo-title-de").value.trim(), seo_description_de: $("#seo-desc-de").value.trim(), variant_names: EDIT.variantNames || {} }) });
+      steps.push(...r2.steps);
+      const newRows = state.matrix.filter((v) => v.enabled);
+      if (newRows.length) {
+        const values = {}; for (const row of newRows) for (const [aid, val] of Object.entries(row.attributes)) (values[aid] = values[aid] || new Set()).add(val);
+        const r3 = await api("/api/studio/variants/create", { method: "POST", body: JSON.stringify({ product_id: EDIT.product.id, values: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, [...v]])), price: newRows[0].prices[Object.keys(newRows[0].prices)[0]] ?? null, stock: newRows[0].stocks[Object.keys(newRows[0].stocks)[0]] ?? 0 }) });
+        steps.push(r3.count ? `${r3.count} new variant(s) created` : r3.skipped);
+      }
+      for (const id of state.selected) { try { await api("/api/studio/attach", { method: "POST", body: JSON.stringify({ asset_id: id, product_id: EDIT.product.id, alt: $("#alt-text").value.trim() }) }); } catch {} }
+      if (state.selected.length) steps.push(`${state.selected.length} photo(s) attached`);
+      const list = $("#result-steps"); list.replaceChildren(); for (const st of steps) list.append(el("li", {}, el("span", { class: "ok" }, "✓ "), st));
+      $("#result-link").href = `${document.referrer ? new URL(document.referrer).origin : ""}/dashboard/products/${encodeURIComponent(EDIT.product.id)}`;
+      document.querySelectorAll(".step").forEach((s) => { s.hidden = true; }); $("#result").hidden = false; notify("success", "Saved");
+    } catch (e) { $("#create-msg").textContent = e.message; notify("error", e.message); btn.disabled = false; }
   }
   $("#create").addEventListener("click", async () => {
+    if (EDIT.product) return saveExisting();
     const btn = $("#create"); btn.disabled = true; $("#create-msg").textContent = "Creating…";
     const attrsFromInputs = Object.fromEntries([...document.querySelectorAll("#product-attrs [data-attr]")].map((i) => [i.dataset.attr, i.value.trim()]).filter(([, v]) => v));
     const body = {
@@ -301,7 +326,7 @@
       notify("success", `Created "${r.product.name}" with ${r.variants.length} variant(s)`);
     } catch (e) { $("#create-msg").textContent = e.message; notify("error", e.message); btn.disabled = false; }
   });
-  $("#restart").addEventListener("click", () => { state.selected = []; state.matrix = []; state.draft = null; document.querySelectorAll("#app input:not([type=checkbox]):not([type=file]), #app textarea").forEach((i) => { if (!["sku-pattern", "brand-code", "reval-url", "llm-model"].includes(i.id)) i.value = ""; }); renderPhotos(); showStep(1); });
+  $("#restart").addEventListener("click", () => { EDIT.product = null; EDIT.details = null; $("#wizard").hidden = true; $("#cp-empty").hidden = false; $("#result").hidden = true; cpLoad(true); state.selected = []; state.matrix = []; state.draft = null; document.querySelectorAll("#app input:not([type=checkbox]):not([type=file]), #app textarea").forEach((i) => { if (!["sku-pattern", "brand-code", "reval-url", "llm-model"].includes(i.id)) i.value = ""; }); renderPhotos(); showStep(1); });
 
   if (qs.get("token")) { state.token = qs.get("token"); if (!state.domain) state.domain = domainFromToken(state.token); boot(); }
 })();

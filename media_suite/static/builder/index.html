@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Product Builder</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.3.1">
+  <link rel="stylesheet" href="/static/app.css?v=1.4.0">
 </head>
 <body>
   <main id="app" class="app" hidden>
@@ -39,37 +39,15 @@
         <ul class="product-list" id="cp-list"></ul>
         <div class="table-foot"><span id="cp-page"></span><button class="btn btn-sm" id="cp-more" hidden>More</button></div>
       </aside>
-      <section class="work">
-        <div class="panel" id="cp-empty"><div class="empty-state"><strong>Pick a product</strong><span>Then let the AI improve its title, descriptions, SEO and variant names. No images needed.</span><a href="#" id="show-wizard" class="muted" style="font-size:12px">Create a brand-new product from photos instead →</a></div></div>
-        <div id="cp-work" hidden>
-          <section class="panel">
-            <div class="panel-head"><div><h2 id="cp-title"></h2><span class="muted" id="cp-sub"></span></div>
-              <div class="btn-row"><select id="cp-tone" class="action-select" style="width:auto"><option value="clear and premium">Clear & premium</option><option value="friendly and simple">Friendly & simple</option><option value="technical and precise">Technical & precise</option><option value="short and punchy">Short & punchy</option></select>
-                <select id="cp-lang" class="action-select" style="width:auto"><option value="en,de">EN + DE</option><option value="en">EN only</option><option value="de">DE only</option></select>
-                <button class="btn btn-primary" id="cp-improve">Improve with AI</button></div></div>
-            <div class="gen-form">
-              <input id="cp-instructions" placeholder="Optional instructions, e.g. mention the winter collection, mention 100% cotton">
-              <p class="muted" id="cp-msg"></p>
-            </div>
-          </section>
-          <section class="panel">
-            <div class="panel-head"><h2>Texts</h2><span class="muted">left: current · right: editable proposal</span></div>
-            <div class="gen-form" id="cp-fields"></div>
-            <div class="panel-head" style="border-top:1px solid var(--border)"><h2>Variant names</h2></div>
-            <div class="table-wrap"><table class="products" id="cp-variants"></table></div>
-            <div class="between gen-foot"><span class="muted" id="cp-apply-msg"></span><button class="btn btn-primary" id="cp-apply" disabled>Apply to Saleor</button></div>
-          </section>
-        </div>
-      </section>
-    </div>
-
+      <section class="work" id="wizard-work">
+        <div class="panel" id="cp-empty"><div class="empty-state"><strong>Pick a product to edit</strong><span>Or <a href="#" id="show-wizard">create a new product from photos</a>.</span></div></div>
     <div id="wizard" hidden>
     <div class="steps" id="steps"></div>
 
     <!-- Step 1: photos -->
     <section class="panel step" data-step="1">
       <div class="panel-head"><h2>1 · Photos</h2><label class="btn btn-sm">Upload photos <input type="file" id="upload" accept="image/*" multiple hidden></label></div>
-      <p class="muted pad">Upload supplier photos, or pick images generated in AI Studio. The first ticked image becomes the main product image.</p>
+      <p class="muted pad" id="photos-hint">Upload supplier photos, or pick images generated in AI Studio. The first ticked image becomes the main product image.</p>
       <div class="media-grid" id="photos"></div>
       <div class="panel-foot"><span class="muted" id="photos-info"></span><button class="btn btn-primary" id="to-draft" disabled>Continue</button></div>
     </section>
@@ -81,7 +59,7 @@
         <label>Hints for the AI <span class="hint">optional: brand, material, price segment, anything the photo can't show</span>
           <textarea id="hints" rows="2" placeholder="e.g. 100% Egyptian cotton, women's, winter collection"></textarea></label>
         <div class="between"><span class="muted" id="draft-msg"></span>
-          <div><button class="btn" id="skip-draft">Skip, fill manually</button> <button class="btn btn-primary" id="run-draft">Draft with AI</button></div></div>
+          <div><select id="draft-tone" class="action-select" style="width:auto"><option value="clear and premium">Clear & premium</option><option value="friendly and simple">Friendly & simple</option><option value="technical and precise">Technical & precise</option><option value="short and punchy">Short & punchy</option></select> <button class="btn" id="skip-draft">Skip</button> <button class="btn btn-primary" id="run-draft">Write with AI</button></div></div>
       </div>
     </section>
 
@@ -99,8 +77,12 @@
           <label>Name (DE) <input id="name-de"></label>
         </div>
         <div class="row2">
-          <label>Description (EN) <textarea id="desc-en" rows="5"></textarea></label>
-          <label>Description (DE) <textarea id="desc-de" rows="5"></textarea></label>
+          <label>Intro (EN) <textarea id="desc-en" rows="3"></textarea></label>
+          <label>Intro (DE) <textarea id="desc-de" rows="3"></textarea></label>
+        </div>
+        <div class="row2">
+          <label>Product Details (EN) <span class="hint">one per line</span><textarea id="details-en" rows="7"></textarea></label>
+          <label>Produktdetails (DE) <span class="hint">one per line</span><textarea id="details-de" rows="7"></textarea></label>
         </div>
         <div class="row2">
           <label>SEO title (EN) <input id="seo-title-en" maxlength="70"></label>
@@ -128,11 +110,14 @@
         </div>
         <div class="between"><span class="muted" id="matrix-info"></span><button class="btn" id="build-matrix">Build variant table</button></div>
         <div class="table-wrap"><table class="products" id="matrix"></table></div>
+        <div id="existing-variants-box" hidden><h3 style="margin:8px 0 4px">Existing variants</h3><div class="table-wrap"><table class="products" id="existing-variants"></table></div></div>
         <div class="between"><span class="muted" id="create-msg"></span><button class="btn btn-primary" id="create" disabled>Create product in Saleor</button></div>
       </div>
     </section>
 
     </div><!-- /wizard -->
+      </section>
+    </div><!-- /layout -->
 
     <section class="panel" id="result" hidden>
       <div class="panel-head"><h2>Done</h2></div>
@@ -141,6 +126,6 @@
   </main>
 
   <div id="waiting" class="waiting"><p>Connecting to the Saleor dashboard…</p><p class="muted">Open this page from Catalog → Product Builder.</p></div>
-  <script src="/static/builder/app.js?v=1.3.1"></script>
+  <script src="/static/builder/app.js?v=1.4.0"></script>
 </body>
 </html>
