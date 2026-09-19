@@ -123,7 +123,7 @@
   const PRIMARY = { product: ["product"], model: ["product", "model"], variants: ["source"], pack: ["product", "model"], edit: ["source"], video: ["source"] };
   const REF_SLOTS = {
     product: [{ key: "product", label: "Product", help: "controls the garment", multi: true }, { key: "fabric", label: "Fabric", help: "optional: true texture", multi: true }, { key: "style", label: "Style", help: "optional: camera, background, crop" }],
-    model: [{ key: "product", label: "Product", help: "controls the garment", multi: true }, { key: "model", label: "Model", help: "controls the person" }, { key: "fabric", label: "Fabric", help: "optional" }, { key: "style", label: "Style", help: "optional: copy look from another product" }, { key: "logo", label: "Logo", help: "only if 'Add uploaded logo'" }],
+    model: [{ key: "product", label: "Product", help: "controls the garment", multi: true }, { key: "model", label: "Model(s)", help: "one job per model photo", multi: true }, { key: "fabric", label: "Fabric", help: "optional" }, { key: "style", label: "Style", help: "optional: copy look from another product" }, { key: "logo", label: "Logo", help: "only if 'Add uploaded logo'" }],
     variants: [{ key: "source", label: "Image to recolour", help: "an approved on-model or product image" }, { key: "product", label: "Product", help: "for accuracy", multi: true }],
     pack: [{ key: "product", label: "Product", help: "controls the garment", multi: true }, { key: "model", label: "Model", help: "for model packs" }, { key: "style", label: "Style", help: "optional" }],
     edit: [{ key: "source", label: "Image to edit", help: "the result you want to change" }, { key: "product", label: "Product", help: "for accuracy", multi: true }, { key: "logo", label: "Logo", help: "only if adding a logo" }],
@@ -153,7 +153,7 @@
     const R = S.refs, T = S.refThumbs;
     if (key === "product") return R.product_urls.map((u) => ({ id: u, thumb: T[u] || u }));
     if (key === "source") return R.source_asset_id ? [{ id: R.source_asset_id, thumb: T[R.source_asset_id] }] : [];
-    if (key === "model") { const id = R.model_asset_id || S.lockedModel; const m = S.models.find((x) => x.id === id); return m ? [{ id: m.id, thumb: m.url }] : []; }
+    if (key === "model") { const ids = R.model_asset_ids.length ? R.model_asset_ids : [R.model_asset_id || S.lockedModel].filter(Boolean); return ids.map((id) => S.models.find((x) => x.id === id)).filter(Boolean).map((m) => ({ id: m.id, thumb: m.url })); }
     if (key === "fabric") return R.fabric_asset_ids.map((id) => ({ id, thumb: T[id] }));
     if (key === "style") return R.style_url ? [{ id: R.style_url, thumb: T[R.style_url] || R.style_url }] : [];
     if (key === "logo") return R.logo_asset_id ? [{ id: R.logo_asset_id, thumb: T[R.logo_asset_id] }] : [];
@@ -163,7 +163,7 @@
     const R = S.refs;
     if (key === "product") R.product_urls = R.product_urls.filter((u) => u !== id);
     if (key === "source") R.source_asset_id = null;
-    if (key === "model") { R.model_asset_id = null; if (S.lockedModel === id) api("/api/studio/model-lock", { method: "POST", body: JSON.stringify({ asset_id: id, lock: false }) }).then(() => { S.lockedModel = null; renderRefs(); }); }
+    if (key === "model") { R.model_asset_ids = R.model_asset_ids.filter((x) => x !== id); if (R.model_asset_id === id) R.model_asset_id = null; if (!R.model_asset_ids.length && !R.model_asset_id && S.lockedModel === id) api("/api/studio/model-lock", { method: "POST", body: JSON.stringify({ asset_id: id, lock: false }) }).then(() => { S.lockedModel = null; renderRefs(); }); }
     if (key === "fabric") R.fabric_asset_ids = R.fabric_asset_ids.filter((x) => x !== id);
     if (key === "style") R.style_url = null;
     if (key === "logo") R.logo_asset_id = null;
@@ -173,7 +173,7 @@
     const R = S.refs; const id = item.id || own(item.url);
     if (key === "product") { if (!R.product_urls.includes(item.url)) R.product_urls.push(item.url); S.refThumbs[item.url] = item.thumb; }
     if (key === "source") { if (!id) return notify("error", "Choose an image stored in the app (a result or an upload)."); R.source_asset_id = id; S.refThumbs[id] = item.thumb; }
-    if (key === "model") { if (!id) return notify("error", "Upload the model photo first."); R.model_asset_id = id; if (!S.models.some((m) => m.id === id)) S.models.push({ id, url: item.thumb, label: "model" }); }
+    if (key === "model") { if (!id) return notify("error", "Upload the model photo first."); if (!R.model_asset_ids.includes(id)) R.model_asset_ids.push(id); R.model_asset_id = id; if (!S.models.some((m) => m.id === id)) S.models.push({ id, url: item.thumb, label: "model" }); }
     if (key === "fabric") { if (!id) return notify("error", "Upload the fabric photo first."); if (!R.fabric_asset_ids.includes(id)) R.fabric_asset_ids.push(id); S.refThumbs[id] = item.thumb; }
     if (key === "style") { R.style_url = item.url; S.refThumbs[item.url] = item.thumb; if (key === "style") S.opts.background = "custom"; }
     if (key === "logo") { if (!id) return notify("error", "Upload the logo first."); R.logo_asset_id = id; S.refThumbs[id] = item.thumb; S.opts.logo = "add"; }
@@ -183,11 +183,12 @@
   // picker: product images, results, uploads, model library, other products, page URL
   async function pickFor(key) {
     const dlg = $("#picker"); $("#picker-title").textContent = { product: "Product reference", source: "Image to use", model: "Model photo", fabric: "Fabric reference", style: "Style from another product", logo: "Company logo" }[key];
-    dlg.showModal(); $("#picker-search").value = ""; $("#picker-upload").onchange = async (e) => { for (const f of e.target.files) { const fd = new FormData(); fd.append("file", f); if (key === "model") fd.append("label", f.name); try { const a = await api(key === "model" ? "/api/studio/assets/models" : "/api/builder/upload", { method: "POST", body: fd }); if (key === "model") S.models.push(a); setRef(key, { id: a.id, url: location.origin + a.url, thumb: a.url }); } catch (err) { notify("error", err.message); } } e.target.value = ""; dlg.close(); };
+    dlg.showModal(); $("#picker-search").value = ""; if (multi) $("#picker-title").textContent += " — tick several, then close"; $("#picker-upload").onchange = async (e) => { for (const f of e.target.files) { const fd = new FormData(); fd.append("file", f); if (key === "model") fd.append("label", f.name); try { const a = await api(key === "model" ? "/api/studio/assets/models" : "/api/builder/upload", { method: "POST", body: fd }); if (key === "model") S.models.push(a); setRef(key, { id: a.id, url: location.origin + a.url, thumb: a.url }); } catch (err) { notify("error", err.message); } } e.target.value = ""; dlg.close(); };
     const grid = $("#picker-grid");
-    const add = (item, label, deletable = false) => grid.append(el("div", { class: "tile", onclick: () => { setRef(key, item); dlg.close(); } }, el("img", { src: item.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
+    const multi = key === "model";
+    const add = (item, label, deletable = false) => { const on = multi && S.refs.model_asset_ids.includes(item.id); grid.append(el("div", { class: `tile${on ? " selected" : ""}`, onclick: (e) => { if (multi) { if (S.refs.model_asset_ids.includes(item.id)) { S.refs.model_asset_ids = S.refs.model_asset_ids.filter((x) => x !== item.id); e.currentTarget.classList.remove("selected"); renderRefs(); } else { setRef(key, item); e.currentTarget.classList.add("selected"); } return; } setRef(key, item); dlg.close(); } }, el("img", { src: item.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }), on ? el("span", { class: "check" }, "✓") : null,
       deletable ? el("button", { class: "btn btn-sm del", title: "Delete this model photo", onclick: async (e) => { e.stopPropagation(); const c = await ask({ title: "Delete model photo?", text: label, ok: "Delete" }); if (!c.ok) return; await deleteModel(item.id); load($("#picker-search").value.trim()); } }, "✕") : null,
-      el("div", { class: "cap", title: label }, label)));
+      el("div", { class: "cap", title: label }, label))); };
     const load = async (q) => {
       grid.replaceChildren(el("p", { class: "muted" }, "Loading…"));
       try {
@@ -260,7 +261,7 @@
   function _unused() {
   }
   const advanced = () => ({ provider: $("#adv-provider").value || null, model: $("#adv-model").value || null, n: Number($("#adv-n").value), size: $("#adv-size").value || null, options: advancedOptions() });
-  let et; function updateEstimate() { clearTimeout(et); et = setTimeout(async () => { try { const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task]; const ready = S.tasks.providers_ready[mode]; const pref = (S.settings?.preferred_providers || {})[mode]; const prov = $("#adv-provider").value || pref || ready?.[0]; const model = $("#adv-model").value || (prov === ready?.[0] ? ready?.[1] : resolvedModel()?.id); if (!prov) { $("#cost-hint").textContent = "No provider configured for this task — add a key in Settings."; return; } const n = S.task === "variants" ? (S.opts.selectedColors || []).length || 1 : S.task === "pack" ? 4 : Number($("#adv-n").value); const e = await api("/api/studio/estimate", { method: "POST", body: JSON.stringify({ provider: prov, model, mode, n }) }); $("#cost-hint").textContent = `${prov} · ≈ €${e.cost_eur.toFixed(2)} · ~${e.seconds >= 90 ? Math.round(e.seconds / 60) + " min" : e.seconds + " s"}` + (e.daily_budget_eur ? ` · today €${e.spent_today_eur.toFixed(2)}/${e.daily_budget_eur.toFixed(0)}` : ""); } catch { $("#cost-hint").textContent = ""; } }, 200); }
+  let et; function updateEstimate() { clearTimeout(et); et = setTimeout(async () => { try { const mode = { product: "scene", model: "tryon", variants: "edit", edit: "edit", video: "video", pack: "scene" }[S.task]; const ready = S.tasks.providers_ready[mode]; const pref = (S.settings?.preferred_providers || {})[mode]; const prov = $("#adv-provider").value || pref || ready?.[0]; const model = $("#adv-model").value || (prov === ready?.[0] ? ready?.[1] : resolvedModel()?.id); if (!prov) { $("#cost-hint").textContent = "No provider configured for this task — add a key in Settings."; return; } const n = (S.task === "variants" ? (S.opts.selectedColors || []).length || 1 : S.task === "pack" ? 4 : Number($("#adv-n").value)) * (S.task === "model" ? Math.max(1, S.refs.model_asset_ids.length) : 1); const e = await api("/api/studio/estimate", { method: "POST", body: JSON.stringify({ provider: prov, model, mode, n }) }); $("#cost-hint").textContent = `${prov} · ≈ €${e.cost_eur.toFixed(2)} · ~${e.seconds >= 90 ? Math.round(e.seconds / 60) + " min" : e.seconds + " s"}` + (e.daily_budget_eur ? ` · today €${e.spent_today_eur.toFixed(2)}/${e.daily_budget_eur.toFixed(0)}` : ""); } catch { $("#cost-hint").textContent = ""; } }, 200); }
 
   // ---- generate ---------------------------------------------------------------------------
   $("#generate").addEventListener("click", async () => {
@@ -270,8 +271,9 @@
       if (S.task === "variants") { if (!S.refs.source_asset_id) throw new Error("Choose the image to recolour (a result or an upload)."); const r = await api("/api/studio/variants/generate", { method: "POST", body: JSON.stringify({ product_id: S.product.id, source_asset_id: S.refs.source_asset_id, colors: S.opts.selectedColors, advanced: advanced() }) }); notify("success", `${r.jobs.length} colour variant(s) started`); }
       else if (S.task === "pack") { const r = await api("/api/studio/pack", { method: "POST", body: JSON.stringify({ product_id: S.product.id, pack: S.opts.pack || "product", refs: S.refs, options: opts, advanced: advanced() }) }); const skipped = r.jobs.filter((j) => j.status === "skipped"); notify(skipped.length < r.jobs.length ? "success" : "error", `${r.jobs.length - skipped.length} of ${r.jobs.length} steps started` + (skipped.length ? ` (${skipped.map((s) => s.error).join("; ")})` : "")); }
       else { const refs = { ...S.refs }; if (S.task === "video" && S.refs.source_asset_id) { refs.product_urls = []; }
+        if (S.task === "model" && refs.model_asset_ids.length > 1) refs.model_asset_id = null;
         const act = S.task === "edit" ? S.tasks.edit_actions.find((a) => a.id === S.opts.action) : null; const task = act?.task || S.task;
-        const r = await api("/api/studio/run", { method: "POST", body: JSON.stringify({ task, product_id: S.product.id, refs, options: opts, advanced: advanced() }) }); notify("success", `Started with ${r.provider} (≈ €${r.estimated_cost_eur})`); }
+        const r = await api("/api/studio/run", { method: "POST", body: JSON.stringify({ task, product_id: S.product.id, refs, options: opts, advanced: advanced() }) }); notify("success", r.count ? `${r.count} on-model jobs started with ${r.provider}` : `Started with ${r.provider} (≈ €${r.estimated_cost_eur})`); }
       await loadResults();
     } catch (e) { notify("error", e.message); } finally { btn.disabled = false; }
   });

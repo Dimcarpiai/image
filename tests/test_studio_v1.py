@@ -284,3 +284,17 @@ def test_add_variants_colour_x_size(saleor):
         # generic form: any attribute can be an axis (Fit x Size), colour copied from the existing variant
         r = c.post("/api/studio/variants/create", headers=H(saleor), json={"product_id": "P1", "values": {"A_FIT": ["Regular"], "A_SIZE": ["S", "M"]}}).json()
         assert r["count"] == 2 and all({"id": "A_COL", "dropdown": {"value": "Burgundy"}} in v["attributes"] for v in saleor.bulk_variants)
+
+
+def test_multiple_model_photos_make_one_job_each(saleor, monkeypatch):
+    rec = Recorder(PROVIDERS["openai"]); monkeypatch.setitem(PROVIDERS, "openai", rec)
+    with TestClient(app) as c:
+        c.put("/api/studio/keys", headers=H(saleor), json={"provider": "openai", "api_key": "k"})
+        c.put("/api/studio/settings", headers=H(saleor), json={"preferred_providers": {"tryon": "openai"}})
+        ids = [c.post("/api/studio/assets/models", headers=H(saleor), files={"file": (f"m{i}.png", png((i, i, i)), "image/png")}, data={"label": f"M{i}"}).json()["id"] for i in range(3)]
+        r = c.post("/api/studio/run", headers=H(saleor), json={"task": "model", "product_id": "P1", "refs": {"product_urls": [saleor.base + "/media/front.png"], "model_asset_ids": ids}}).json()
+        assert r["count"] == 3 and len(r["jobs"]) == 3
+        res = wait_done(c, saleor)
+        batch = [x for x in res if x["batch"] == r["batch"]]
+        assert len(batch) == 3 and {x["label"].split("·")[-1].strip() for x in batch} == {"model 1/3", "model 2/3", "model 3/3"}
+        c.put("/api/studio/settings", headers=H(saleor), json={"preferred_providers": {"tryon": ""}})

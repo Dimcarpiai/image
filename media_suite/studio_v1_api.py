@@ -85,6 +85,7 @@ class Refs(BaseModel):
     product_urls: List[str] = []          # Saleor media urls (or own /media links)
     source_asset_id: Optional[str] = None # image to edit (variants / edit tasks)
     model_asset_id: Optional[str] = None
+    model_asset_ids: List[str] = []      # several model photos → one job per photo (on-model tasks)
     fabric_asset_ids: List[str] = []
     style_url: Optional[str] = None       # any image url (another product's media, own asset link)
     logo_asset_id: Optional[str] = None
@@ -247,6 +248,17 @@ def _create_job(shop: Installation, product: dict, body: RunBody) -> dict:
 @router.post("/run")
 async def run(body: RunBody, shop: Installation = Depends(current_shop)):
     product = await _product(shop, body.product_id)
+    models = [m for m in (body.refs.model_asset_ids or []) if m] or ([body.refs.model_asset_id] if body.refs.model_asset_id else [])
+    if TASK_MODE.get(body.task) == "tryon" and len(models) > 1:
+        batch = body.batch or uuid.uuid4().hex
+        jobs = []
+        for i, mid in enumerate(models[:12]):
+            rb = body.copy(deep=True); rb.refs.model_asset_id = mid; rb.refs.model_asset_ids = []; rb.batch = batch
+            rb.label = (body.label or TASKS[body.task]["label"]) + f" · model {i + 1}/{len(models)}"
+            jobs.append(_create_job(shop, product, rb))
+        return {**jobs[0], "batch": batch, "jobs": [j["id"] for j in jobs], "count": len(jobs)}
+    if models:
+        body.refs.model_asset_id = models[0]
     return _create_job(shop, product, body)
 
 
