@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Studio</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.1.7">
+  <link rel="stylesheet" href="/static/app.css?v=1.1.8">
 </head>
 <body>
   <main id="app" class="app studio" hidden>
@@ -86,6 +86,7 @@
           <div class="panel-head"><h2>Model & looks</h2></div>
           <div class="gen-form">
             <div id="locked-model-box"></div>
+            <div id="model-photos-box"></div>
             <h3>Looks (collection consistency)</h3>
             <p class="muted">A look fixes model, background, pose and locks for every product — pick it when generating or in bulk.</p>
             <div id="looks-list"></div>
@@ -126,6 +127,6 @@
   <dialog id="clone-dialog" class="lightbox"><form method="dialog" class="preview-head"><h2>Clone product</h2><button class="btn btn-quiet">Cancel</button></form><div class="gen-form" style="width:min(600px,88vw)"><label>New name <input id="clone-name"></label><div class="row2"><label>New colour <input id="clone-color" placeholder="e.g. Navy"></label><label>SKU suffix <input id="clone-suffix"></label></div><label class="check"><input type="checkbox" id="clone-images" checked> copy existing images</label><label class="check"><input type="checkbox" id="clone-stock"> copy stock</label><div class="between"><span class="muted" id="clone-msg"></span><button class="btn btn-primary" id="clone-go">Create</button></div></div></dialog>
   <dialog id="lightbox" class="lightbox"><form method="dialog" class="preview-head"><h2 id="lightbox-title"></h2><button class="btn btn-quiet">Close</button></form><div id="lightbox-body"></div></dialog>
 
-  <script src="/static/studio/app.js?v=1.1.7"></script>
+  <script src="/static/studio/app.js?v=1.1.8"></script>
 </body>
 </html>

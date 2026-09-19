@@ -103,6 +103,15 @@
     renderTasks(); renderRefs(); renderOptions(); await loadResults();
   }
 
+  async function deleteModel(id) {
+    try {
+      if (S.lockedModel === id) { await api("/api/studio/model-lock", { method: "POST", body: JSON.stringify({ asset_id: id, lock: false }) }); S.lockedModel = null; }
+      await api(`/api/studio/assets/${id}`, { method: "DELETE" });
+      S.models = S.models.filter((m) => m.id !== id); if (S.refs.model_asset_id === id) S.refs.model_asset_id = null;
+      renderRefs(); notify("success", "Model photo deleted");
+    } catch (e) { notify("error", e.message); }
+  }
+
   // ---- 2 · tasks --------------------------------------------------------------------
   function renderTasks() {
     const g = $("#task-grid"); g.replaceChildren();
@@ -175,7 +184,10 @@
   async function pickFor(key) {
     const dlg = $("#picker"); $("#picker-title").textContent = { product: "Product reference", source: "Image to use", model: "Model photo", fabric: "Fabric reference", style: "Style from another product", logo: "Company logo" }[key];
     dlg.showModal(); $("#picker-search").value = ""; $("#picker-upload").onchange = async (e) => { for (const f of e.target.files) { const fd = new FormData(); fd.append("file", f); if (key === "model") fd.append("label", f.name); try { const a = await api(key === "model" ? "/api/studio/assets/models" : "/api/builder/upload", { method: "POST", body: fd }); if (key === "model") S.models.push(a); setRef(key, { id: a.id, url: location.origin + a.url, thumb: a.url }); } catch (err) { notify("error", err.message); } } e.target.value = ""; dlg.close(); };
-    const grid = $("#picker-grid"); const add = (item, label) => grid.append(el("div", { class: "tile", onclick: () => { setRef(key, item); dlg.close(); } }, el("img", { src: item.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }), el("div", { class: "cap", title: label }, label)));
+    const grid = $("#picker-grid");
+    const add = (item, label, deletable = false) => grid.append(el("div", { class: "tile", onclick: () => { setRef(key, item); dlg.close(); } }, el("img", { src: item.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
+      deletable ? el("button", { class: "btn btn-sm del", title: "Delete this model photo", onclick: async (e) => { e.stopPropagation(); const c = await ask({ title: "Delete model photo?", text: label, ok: "Delete" }); if (!c.ok) return; await deleteModel(item.id); load($("#picker-search").value.trim()); } }, "✕") : null,
+      el("div", { class: "cap", title: label }, label)));
     const load = async (q) => {
       grid.replaceChildren(el("p", { class: "muted" }, "Loading…"));
       try {
@@ -185,7 +197,7 @@
           return;
         }
         grid.replaceChildren();
-        if (key === "model") { for (const m of S.models) add({ id: m.id, url: location.origin + m.url, thumb: m.url }, m.label || "model"); if (!q) grid.append(el("p", { class: "muted", style: "grid-column:1/-1" }, "Upload a photo, or generate one with “On model” → “Keep this model”.")); return; }
+        if (key === "model") { for (const m of S.models) add({ id: m.id, url: location.origin + m.url, thumb: m.url }, (m.label || "model") + (m.id === S.lockedModel ? " · locked" : ""), true); if (!q) grid.append(el("p", { class: "muted", style: "grid-column:1/-1" }, "Upload a photo, or generate one with “On model” → “Keep this model”.")); return; }
         if (!q && S.product) { for (const m of S.product.media) add({ url: m.url, thumb: m.thumb }, S.product.name); for (const r of S.results) for (const a of r.assets) if (a.mime.startsWith("image/")) add({ id: a.id, url: location.origin + a.url, thumb: a.url }, "result · " + (r.label || "")); }
         const [page, uploads] = await Promise.all([api(`/api/studio/products?${new URLSearchParams({ search: q, first: "24" })}`), q ? [] : api("/api/studio/assets?kind=upload")]);
         for (const p of page.items) { if (S.product && p.id === S.product.id) continue; for (const m of p.media) add({ url: m.url, thumb: m.thumb }, p.name); }
@@ -343,6 +355,12 @@
       $("#sf-url").value = sf.revalidate_url; $("#sf-secret").placeholder = sf.has_secret ? "•••••• (saved)" : "optional"; $("#sf-product-url").value = sf.product_url || "";
       try { const bm = await api("/api/builder/meta"); $("#sku-pattern").value = bm.defaults?.sku_pattern || ""; $("#sku-brand").value = bm.defaults?.brand || ""; } catch {}
       const lm = S.models.find((m) => m.id === S.lockedModel); const box = $("#locked-model-box"); box.replaceChildren(el("h3", {}, "Locked model"), lm ? el("div", { class: "dm-row" }, el("img", { src: lm.url, alt: "" }), el("span", {}, lm.label || "model"), el("button", { class: "btn btn-sm", onclick: async () => { await api("/api/studio/model-lock", { method: "POST", body: JSON.stringify({ asset_id: lm.id, lock: false }) }); loadSettings(); } }, "Unlock")) : el("p", { class: "muted" }, "None. On any “On model” result choose Actions → Keep this model."));
+      const mp = $("#model-photos-box"); mp.replaceChildren(el("h3", {}, "Model photos"));
+      const grid = el("div", { class: "media-grid small" });
+      for (const m of S.models) grid.append(el("div", { class: `tile${m.id === S.lockedModel ? " selected" : ""}` }, el("img", { src: m.url, alt: "" }), m.id === S.lockedModel ? el("span", { class: "check", title: "locked" }, "✓") : null,
+        el("button", { class: "btn btn-sm del", onclick: async () => { const c = await ask({ title: "Delete model photo?", text: m.label || "", ok: "Delete" }); if (!c.ok) return; await deleteModel(m.id); loadSettings(); } }, "✕"),
+        el("div", { class: "cap" }, m.label || "model"), el("div", { class: "actions" }, m.id === S.lockedModel ? null : el("button", { class: "btn btn-sm", onclick: async () => { await api("/api/studio/model-lock", { method: "POST", body: JSON.stringify({ asset_id: m.id }) }); loadSettings(); } }, "Lock"))));
+      mp.append(S.models.length ? grid : el("p", { class: "muted" }, "No model photos yet."));
       const bg = $("#look-bg"); bg.replaceChildren(); for (const b of t.backgrounds) bg.append(el("option", { value: b.id }, b.label)); const po = $("#look-pose"); po.replaceChildren(); for (const p of t.poses) po.append(el("option", { value: p.id }, p.label));
       const ll = $("#looks-list"); ll.replaceChildren(); for (const l of S.looks) ll.append(el("div", { class: "dm-row" }, el("span", {}, el("strong", {}, l.name), ` · ${l.background} · ${l.pose}${l.size ? " · " + l.size : ""}${l.model_asset_id ? " · model" : ""}`), el("button", { class: "btn btn-sm", onclick: async () => { await api(`/api/studio/looks/${l.id}`, { method: "DELETE" }); loadSettings(); } }, "✕"))); if (!S.looks.length) ll.append(el("p", { class: "muted" }, "No looks yet."));
     } catch (e) { $("#st-msg").textContent = e.message; }
