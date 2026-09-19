@@ -97,7 +97,6 @@
 
   // ---- copy mode ----------------------------------------------------------------
   const CP = { products: [], cursor: null, search: "", product: null, current: null, suggestion: null };
-  $("#show-wizard").addEventListener("click", (e) => { e.preventDefault(); $("#copy-mode").hidden = true; $("#wizard").hidden = false; });
   async function cpLoad(reset) {
     if (reset) { CP.products = []; CP.cursor = null; }
     const params = new URLSearchParams({ search: CP.search, first: "20" }); if (CP.cursor) params.set("after", CP.cursor);
